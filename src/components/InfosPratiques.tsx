@@ -1,0 +1,125 @@
+"use client";
+
+import { motion } from "framer-motion";
+import dynamic from "next/dynamic";
+import { RESTAURANT } from "@/data/restaurant";
+
+const MapboxMap = dynamic(() => import("./MapboxMap"), { ssr: false });
+
+export default function InfosPratiques() {
+  return (
+    <section id="contact" className="py-20 sm:py-28 bg-white-warm bg-topo">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.3 }}
+          className="text-center font-[family-name:var(--font-script)] text-gold text-2xl mb-2"
+        >
+          Venez nous voir
+        </motion.p>
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.3 }}
+          transition={{ delay: 0.1 }}
+          className="text-center font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold mb-14"
+        >
+          Infos Pratiques
+        </motion.h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
+          {/* Info cards */}
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.6 }}
+            className="space-y-6"
+          >
+            {/* Horaires */}
+            <div className="bg-cream rounded-2xl p-6 sm:p-8">
+              <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Horaires d&apos;ouverture
+              </h3>
+              <div className="space-y-2">
+                {RESTAURANT.hours.map((h) => (
+                  <div
+                    key={h.days}
+                    className="flex justify-between items-center py-1.5 border-b border-terracotta/15 last:border-0"
+                  >
+                    <span className="text-brown font-medium">{h.days}</span>
+                    <span
+                      className={`text-sm ${
+                        h.time === "Fermé"
+                          ? "text-red font-semibold"
+                          : "text-brown-light"
+                      }`}
+                    >
+                      {h.time}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="bg-cream rounded-2xl p-6 sm:p-8">
+              <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Nous trouver
+              </h3>
+              <p className="text-brown-light mb-3">{RESTAURANT.address}</p>
+              <a
+                href={RESTAURANT.phoneHref}
+                className="inline-flex items-center gap-2 text-red font-semibold hover:text-red-dark transition-colors text-lg mb-4"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                {RESTAURANT.phone}
+              </a>
+              <br />
+              <a
+                href={`mailto:${RESTAURANT.email}`}
+                className="inline-flex items-center gap-2 text-brown-light hover:text-red transition-colors text-sm mb-4"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                {RESTAURANT.email}
+              </a>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {RESTAURANT.payment.map((p) => (
+                  <span
+                    key={p}
+                    className="bg-white-warm border border-terracotta/20 text-brown-light text-xs font-medium px-3 py-1.5 rounded-full"
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Map */}
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.6 }}
+            className="rounded-2xl overflow-hidden shadow-lg shadow-brown/10 h-[400px] lg:h-full min-h-[400px]"
+          >
+            <MapboxMap />
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}

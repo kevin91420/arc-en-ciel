@@ -1,26 +1,178 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-cream: #FDF8F0;
+  --color-cream-dark: #F5EDE0;
+  --color-terracotta: #E8D5C0;
+  --color-terracotta-deep: #C4956A;
+  --color-red: #C0392B;
+  --color-red-dark: #A93226;
+  --color-gold: #B8922F;
+  --color-gold-light: #E8C97A;
+  --color-brown: #2C1810;
+  --color-brown-light: #5C3D2E;
+  --color-white-warm: #FFFDF9;
+
+  --font-display: var(--font-playfair-display), Georgia, serif;
+  --font-body: var(--font-lato), system-ui, sans-serif;
+  --font-script: var(--font-dancing-script), cursive;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-brown);
+  font-family: var(--font-body);
+}
+
+/* Subtle noise texture for premium warmth */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* Section divider */
+.section-divider {
+  background: linear-gradient(90deg, transparent, var(--color-terracotta-deep), transparent);
+  height: 1px;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+/* Paper texture — checkerboard + noise (Menu section) */
+.bg-paper {
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23C4956A' fill-opacity='0.03'%3E%3Cpath d='M0 0h20v20H0zM20 20h20v20H20z'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* Linen texture — fine diagonal lines (Signature section) */
+.bg-linen {
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='8' viewBox='0 0 8 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 8L8 0' stroke='%23C4956A' stroke-width='0.3' opacity='0.08'/%3E%3C/svg%3E");
+}
+
+/* Dots texture — scattered speckle (Services section) */
+.bg-dots {
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='2' cy='2' r='1' fill='%23C4956A' opacity='0.06'/%3E%3Ccircle cx='12' cy='12' r='0.8' fill='%23C4956A' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+/* Herringbone texture — elegant zigzag (Gallery section) */
+.bg-herringbone {
+  background-image: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 12L12 0l12 12M0 24L12 12l12 12' stroke='%23C4956A' stroke-width='0.3' fill='none' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+/* Topo texture — organic curves (InfosPratiques section) */
+.bg-topo {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M15 30 Q30 10 45 30 Q60 50 75 30' stroke='%23C4956A' stroke-width='0.4' fill='none' opacity='0.06'/%3E%3Cpath d='M-5 50 Q10 30 25 50 Q40 70 55 50' stroke='%23C4956A' stroke-width='0.3' fill='none' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+/* Warm vignette on section edges */
+.vignette-warm {
+  position: relative;
+}
+.vignette-warm::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(44,24,16,0.04) 100%);
+  pointer-events: none;
+}
+
+/* Ribbon badge for featured items */
+.ribbon {
+  position: absolute;
+  top: 16px;
+  right: -6px;
+  padding: 4px 14px 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 8px 50%);
+}
+
+/* Ken Burns keyframes */
+@keyframes kenburns-1 {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.15) translate(-2%, -1%); }
+}
+
+@keyframes kenburns-2 {
+  0% { transform: scale(1.05) translate(1%, 0); }
+  100% { transform: scale(1.2) translate(-1%, -2%); }
+}
+
+@keyframes kenburns-3 {
+  0% { transform: scale(1) translate(-1%, 1%); }
+  100% { transform: scale(1.18) translate(2%, -1%); }
+}
+
+/* Pulse animation for CTA */
+@keyframes pulse-warm {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(192, 57, 43, 0); }
+}
+
+.animate-pulse-warm {
+  animation: pulse-warm 2.5s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-cream);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-terracotta-deep);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brown-light);
+}
+
+/* Skip link */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  background: var(--color-red);
+  color: var(--color-white-warm);
+  padding: 8px 16px;
+  border-radius: 0 0 8px 8px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-pulse-warm {
+    animation: none;
+  }
+
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
