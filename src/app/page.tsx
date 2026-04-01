@@ -3,6 +3,7 @@ import Header from "@/components/Header";
 import Hero from "@/components/Hero";
 import Signature from "@/components/Signature";
 import { WaveDivider } from "@/components/Decorations";
+import CustomCursor from "@/components/CustomCursor";
 
 const Footer = dynamic(() => import("@/components/Footer"));
 const Menu = dynamic(() => import("@/components/Menu"));
@@ -15,6 +16,7 @@ const InfosPratiques = dynamic(() => import("@/components/InfosPratiques"));
 export default function Home() {
   return (
     <>
+      <CustomCursor />
       <Header />
       <main id="main-content">
         <Hero />

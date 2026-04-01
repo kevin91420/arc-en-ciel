@@ -161,6 +161,40 @@ body {
   outline-offset: 2px;
 }
 
+/* ── Marquee ── */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 18s linear infinite;
+}
+
+/* ── Custom Cursor ── */
+.custom-cursor-dot {
+  width: 12px;
+  height: 12px;
+  background: var(--color-red);
+  border-radius: 50%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: width 0.25s ease, height 0.25s ease, background 0.25s ease, opacity 0.25s ease;
+  mix-blend-mode: difference;
+}
+
+.custom-cursor-dot.cursor-expanded {
+  width: 40px;
+  height: 40px;
+  background: var(--color-gold-light);
+  margin-left: -14px;
+  margin-top: -14px;
+  opacity: 0.6;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   html {
