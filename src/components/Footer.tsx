@@ -155,10 +155,10 @@ export default function Footer({ restaurant }: FooterProps = {}) {
             &copy; {new Date().getFullYear()} L&apos;Arc en Ciel — Tous droits réservés
           </p>
           <div className="flex gap-6 text-white-warm/60 text-xs">
-            <a href="#" className="hover:text-white-warm/80 transition-colors">
+            <a href="/mentions-legales" className="hover:text-white-warm/80 transition-colors">
               Mentions légales
             </a>
-            <a href="#" className="hover:text-white-warm/80 transition-colors">
+            <a href="/mentions-legales#cookies" className="hover:text-white-warm/80 transition-colors">
               Confidentialité
             </a>
           </div>
