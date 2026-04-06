@@ -22,7 +22,12 @@ function Stars({ count, size = "w-4 h-4" }: { count: number; size?: string }) {
   );
 }
 
-export default function Reviews() {
+interface ReviewsProps {
+  reviews?: any[];
+}
+
+export default function Reviews({ reviews }: ReviewsProps = {}) {
+  const reviewsList = reviews || REVIEWS;
   return (
     <section id="avis" className="relative bg-brown overflow-hidden">
       {/* Marquee top — solid color + low opacity container to stay vectoriel/crisp */}
@@ -64,7 +69,7 @@ export default function Reviews() {
 
         {/* Reviews grid — all 5 visible like V3 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {REVIEWS.map((review, i) => (
+          {reviewsList.map((review, i) => (
             <motion.article
               key={review.name}
               initial={{ opacity: 0, y: 50 }}

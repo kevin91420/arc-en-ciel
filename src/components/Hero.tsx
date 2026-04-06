@@ -6,11 +6,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import { HERO_IMAGES, RESTAURANT } from "@/data/restaurant";
 import { OliveBranch } from "./Decorations";
 
-export default function Hero() {
+interface HeroProps {
+  heroImages?: any[];
+  restaurant?: any;
+}
+
+export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
+  const images = heroImages || HERO_IMAGES;
+  const data = restaurant || RESTAURANT;
   const [current, setCurrent] = useState(0);
 
   const next = useCallback(() => {
-    setCurrent((prev) => (prev + 1) % HERO_IMAGES.length);
+    setCurrent((prev) => (prev + 1) % images.length);
   }, []);
 
   useEffect(() => {
@@ -37,8 +44,8 @@ export default function Hero() {
             }}
           >
             <Image
-              src={HERO_IMAGES[current].src}
-              alt={HERO_IMAGES[current].alt}
+              src={images[current].src}
+              alt={images[current].alt}
               fill
               className="object-cover"
               priority={current === 0}
@@ -103,7 +110,7 @@ export default function Hero() {
           className="flex flex-col sm:flex-row gap-4"
         >
           <a
-            href={RESTAURANT.orderUrl}
+            href={data.orderUrl}
             className="bg-red hover:bg-red-dark text-white-warm font-bold text-lg px-8 py-4 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 animate-pulse-warm"
           >
             Commander en ligne
@@ -141,7 +148,7 @@ export default function Hero() {
           </div>
           {/* Slide indicators */}
           <div className="flex gap-2">
-            {HERO_IMAGES.map((_, i) => (
+            {images.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setCurrent(i)}
@@ -150,7 +157,7 @@ export default function Hero() {
                     ? "bg-gold w-8"
                     : "bg-white-warm/40 w-1.5 hover:bg-white-warm/70"
                 }`}
-                aria-label={`Photo ${i + 1} sur ${HERO_IMAGES.length}`}
+                aria-label={`Photo ${i + 1} sur ${images.length}`}
               />
             ))}
           </div>

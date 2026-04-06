@@ -14,11 +14,18 @@ const CATEGORIES: { key: PizzaCategory | "all"; label: string }[] = [
   { key: "vegetariennes", label: "Végétariennes" },
 ];
 
-export default function Menu() {
+interface MenuProps {
+  pizzas?: any[];
+  restaurant?: any;
+}
+
+export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
+  const allPizzas = pizzas || PIZZAS;
+  const data = restaurant || RESTAURANT;
   const [active, setActive] = useState<PizzaCategory | "all">("all");
 
   const filtered =
-    active === "all" ? PIZZAS : PIZZAS.filter((p) => p.category === active);
+    active === "all" ? allPizzas : allPizzas.filter((p) => p.category === active);
 
   const featured = filtered.find((p) => p.featured);
   const rest = filtered.filter((p) => !p.featured);
@@ -121,7 +128,7 @@ export default function Menu() {
                       {featured.price}
                     </span>
                     <a
-                      href={RESTAURANT.orderUrl}
+                      href={data.orderUrl}
                       className="bg-red hover:bg-red-dark text-white-warm font-bold text-sm px-6 py-3 rounded-full transition-colors duration-300"
                     >
                       Commander
@@ -178,7 +185,7 @@ export default function Menu() {
                     {pizza.ingredients}
                   </p>
                   <a
-                    href={RESTAURANT.orderUrl}
+                    href={data.orderUrl}
                     className="inline-flex items-center gap-2 text-red font-semibold text-sm hover:text-red-dark transition-colors group/btn"
                   >
                     Commander
@@ -207,7 +214,7 @@ export default function Menu() {
           className="text-center mt-14"
         >
           <a
-            href={RESTAURANT.menuPdf}
+            href={data.menuPdf}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-brown-light font-semibold hover:text-red transition-colors border-b-2 border-terracotta/30 hover:border-red pb-1"

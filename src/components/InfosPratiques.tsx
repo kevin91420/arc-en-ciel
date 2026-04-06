@@ -6,7 +6,12 @@ import { RESTAURANT } from "@/data/restaurant";
 
 const MapboxMap = dynamic(() => import("./MapboxMap"), { ssr: false });
 
-export default function InfosPratiques() {
+interface InfosPratiquesProps {
+  restaurant?: any;
+}
+
+export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {}) {
+  const data = restaurant || RESTAURANT;
   return (
     <section id="contact" className="py-20 sm:py-28 bg-white-warm bg-topo">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -46,7 +51,7 @@ export default function InfosPratiques() {
                 Horaires d&apos;ouverture
               </h3>
               <div className="space-y-2">
-                {RESTAURANT.hours.map((h) => (
+                {data.hours.map((h: any) => (
                   <div
                     key={h.days}
                     className="flex justify-between items-center py-1.5 border-b border-terracotta/15 last:border-0"
@@ -75,28 +80,28 @@ export default function InfosPratiques() {
                 </svg>
                 Nous trouver
               </h3>
-              <p className="text-brown-light mb-3">{RESTAURANT.address}</p>
+              <p className="text-brown-light mb-3">{data.address}</p>
               <a
-                href={RESTAURANT.phoneHref}
+                href={data.phoneHref}
                 className="inline-flex items-center gap-2 text-red font-semibold hover:text-red-dark transition-colors text-lg mb-4"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
-                {RESTAURANT.phone}
+                {data.phone}
               </a>
               <br />
               <a
-                href={`mailto:${RESTAURANT.email}`}
+                href={`mailto:${data.email}`}
                 className="inline-flex items-center gap-2 text-brown-light hover:text-red transition-colors text-sm mb-4"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                {RESTAURANT.email}
+                {data.email}
               </a>
               <div className="flex flex-wrap gap-2 mt-3">
-                {RESTAURANT.payment.map((p) => (
+                {data.payment.map((p: any) => (
                   <span
                     key={p}
                     className="bg-white-warm border border-terracotta/20 text-brown-light text-xs font-medium px-3 py-1.5 rounded-full"

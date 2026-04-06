@@ -36,7 +36,12 @@ const SERVICE_ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
-export default function Services() {
+interface ServicesProps {
+  services?: any[];
+}
+
+export default function Services({ services }: ServicesProps = {}) {
+  const servicesList = services || RESTAURANT.services;
   return (
     <section className="py-20 sm:py-24 bg-terracotta/25 bg-dots">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -61,7 +66,7 @@ export default function Services() {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6">
-          {RESTAURANT.services.map((svc, i) => (
+          {servicesList.map((svc, i) => (
             <motion.div
               key={svc.label}
               initial={{ opacity: 0, y: 20 }}

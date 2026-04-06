@@ -1,7 +1,12 @@
 import { RESTAURANT } from "@/data/restaurant";
 import { OliveBranch, RainbowArc } from "./Decorations";
 
-export default function Footer() {
+interface FooterProps {
+  restaurant?: any;
+}
+
+export default function Footer({ restaurant }: FooterProps = {}) {
+  const data = restaurant || RESTAURANT;
   return (
     <footer className="relative bg-brown text-white-warm/80 overflow-hidden">
       {/* Subtle decorative element */}
@@ -21,7 +26,7 @@ export default function Footer() {
           </div>
           <div className="flex gap-3">
             <a
-              href={RESTAURANT.socials.facebook}
+              href={data.socials.facebook}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Suivez-nous sur Facebook"
@@ -32,7 +37,7 @@ export default function Footer() {
               </svg>
             </a>
             <a
-              href={RESTAURANT.socials.instagram}
+              href={data.socials.instagram}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Suivez-nous sur Instagram"
@@ -43,7 +48,7 @@ export default function Footer() {
               </svg>
             </a>
             <a
-              href={RESTAURANT.socials.google}
+              href={data.socials.google}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Nos avis Google"
@@ -66,24 +71,24 @@ export default function Footer() {
               Nous trouver
             </h4>
             <a
-              href={RESTAURANT.mapsLink}
+              href={data.mapsLink}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white-warm/70 hover:text-gold-light transition-colors text-sm leading-relaxed block mb-4"
             >
-              {RESTAURANT.address}
+              {data.address}
             </a>
             <a
-              href={RESTAURANT.phoneHref}
+              href={data.phoneHref}
               className="text-gold hover:text-gold-light transition-colors font-bold text-lg block mb-2"
             >
-              {RESTAURANT.phone}
+              {data.phone}
             </a>
             <a
-              href={`mailto:${RESTAURANT.email}`}
+              href={`mailto:${data.email}`}
               className="text-white-warm/60 hover:text-gold-light transition-colors text-sm"
             >
-              {RESTAURANT.email}
+              {data.email}
             </a>
           </div>
 
@@ -98,7 +103,7 @@ export default function Footer() {
                 { label: "Galerie", href: "#galerie" },
                 { label: "Avis clients", href: "#avis" },
                 { label: "Infos pratiques", href: "#contact" },
-                { label: "Menu complet (PDF)", href: RESTAURANT.menuPdf, external: true },
+                { label: "Menu complet (PDF)", href: data.menuPdf, external: true },
               ].map((link) => (
                 <li key={link.href}>
                   <a
@@ -126,7 +131,7 @@ export default function Footer() {
               Horaires
             </h4>
             <div className="space-y-2 mb-6">
-              {RESTAURANT.hours.map((h) => (
+              {data.hours.map((h: any) => (
                 <div key={h.days} className="flex justify-between text-sm">
                   <span className="text-white-warm/70">{h.days}</span>
                   <span className={h.time === "Fermé" ? "text-red font-semibold" : "text-white-warm/50"}>
@@ -136,7 +141,7 @@ export default function Footer() {
               ))}
             </div>
             <a
-              href={RESTAURANT.phoneHref}
+              href={data.phoneHref}
               className="inline-block bg-red hover:bg-red-dark text-white-warm font-bold text-sm px-7 py-3 rounded-full transition-all duration-300 hover:scale-105"
             >
               Appeler pour commander

@@ -5,7 +5,12 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { GALLERY_IMAGES } from "@/data/restaurant";
 
-export default function Gallery() {
+interface GalleryProps {
+  galleryImages?: any[];
+}
+
+export default function Gallery({ galleryImages }: GalleryProps = {}) {
+  const images = galleryImages || GALLERY_IMAGES;
   const [lightbox, setLightbox] = useState<number | null>(null);
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
@@ -16,11 +21,11 @@ export default function Gallery() {
       if (e.key === "Escape") closeLightbox();
       if (e.key === "ArrowLeft")
         setLightbox((prev) =>
-          prev !== null ? (prev - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length : null
+          prev !== null ? (prev - 1 + images.length) % images.length : null
         );
       if (e.key === "ArrowRight")
         setLightbox((prev) =>
-          prev !== null ? (prev + 1) % GALLERY_IMAGES.length : null
+          prev !== null ? (prev + 1) % images.length : null
         );
     };
     document.addEventListener("keydown", onKey);
@@ -50,7 +55,7 @@ export default function Gallery() {
 
         {/* Masonry Grid */}
         <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 sm:gap-6">
-          {GALLERY_IMAGES.map((img, i) => (
+          {images.map((img, i) => (
             <motion.button
               key={img.src}
               initial={{ opacity: 0, y: 30 }}
@@ -109,8 +114,8 @@ export default function Gallery() {
               onClick={(e) => e.stopPropagation()}
             >
               <Image
-                src={GALLERY_IMAGES[lightbox].src.replace("w=600", "w=1200").replace("h=800", "h=900").replace("h=400", "h=800")}
-                alt={GALLERY_IMAGES[lightbox].alt}
+                src={images[lightbox].src.replace("w=600", "w=1200").replace("h=800", "h=900").replace("h=400", "h=800")}
+                alt={images[lightbox].alt}
                 width={1200}
                 height={800}
                 className="w-full h-auto max-h-[85vh] object-contain rounded-lg"
@@ -129,7 +134,7 @@ export default function Gallery() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightbox((lightbox - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length);
+                  setLightbox((lightbox - 1 + images.length) % images.length);
                 }}
                 className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white-warm p-2 rounded-full transition-colors"
                 aria-label="Photo precedente"
@@ -141,7 +146,7 @@ export default function Gallery() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightbox((lightbox + 1) % GALLERY_IMAGES.length);
+                  setLightbox((lightbox + 1) % images.length);
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white-warm p-2 rounded-full transition-colors"
                 aria-label="Photo suivante"
