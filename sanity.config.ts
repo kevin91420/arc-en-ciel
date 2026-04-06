@@ -9,6 +9,7 @@ export default defineConfig({
   title: "L'Arc en Ciel — Admin",
   projectId,
   dataset,
+  basePath: "/studio",
   plugins: [
     structureTool({
       structure: (S) =>
