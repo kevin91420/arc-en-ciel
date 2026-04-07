@@ -52,7 +52,7 @@ export const metadata: Metadata = {
     canonical: "https://arc-en-ciel-theta.vercel.app",
   },
   verification: {
-    google: "GOOGLE_SEARCH_CONSOLE_VERIFICATION_CODE",
+    google: "google319b17f3a7a0558d",
   },
 };
 
