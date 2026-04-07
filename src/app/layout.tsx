@@ -67,6 +67,20 @@ export default function RootLayout({
       className={`h-full antialiased ${playfair.variable} ${lato.variable} ${dancingScript.variable}`}
     >
       <head>
+        <script
+          async
+          src="https://www.googletagmanager.com/gtag/js?id=G-KB88DS6GCC"
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-KB88DS6GCC');
+            `,
+          }}
+        />
         <link rel="preconnect" href="https://images.unsplash.com" />
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
         <link rel="dns-prefetch" href="https://cdn.website.dish.co" />
