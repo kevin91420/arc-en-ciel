@@ -112,13 +112,10 @@ export default function CookieBanner() {
     }, 600);
   }, [loadAnalytics]);
 
+  const [refusing, setRefusing] = useState(false);
+
   const handleRefuse = useCallback(() => {
-    // Sad single cookie falling
-    confettiRef.current?.addConfetti({
-      emojis: ["\uD83C\uDF2B\uFE0F"],
-      emojiSize: 30,
-      confettiNumber: 6,
-    });
+    setRefusing(true);
 
     setTimeout(() => {
       setExiting(true);
@@ -127,7 +124,7 @@ export default function CookieBanner() {
         setVisible(false);
         localStorage.setItem("cookie-consent", "refused");
       }, 500);
-    }, 400);
+    }, 900);
   }, []);
 
   if (consent || !visible) return null;
@@ -180,9 +177,18 @@ export default function CookieBanner() {
                 </button>
                 <button
                   onClick={handleRefuse}
-                  className="px-5 py-2.5 bg-brown-light/60 hover:bg-brown-light text-terracotta hover:text-cream font-medium text-sm rounded-xl border border-brown-light transition-all active:scale-95 cursor-pointer"
+                  className={`px-5 py-2.5 bg-brown-light/60 hover:bg-brown-light text-terracotta hover:text-cream font-medium text-sm rounded-xl border border-brown-light transition-all cursor-pointer relative overflow-hidden ${
+                    refusing
+                      ? "animate-refuse-btn pointer-events-none"
+                      : "active:scale-95"
+                  }`}
                 >
-                  Non merci
+                  <span className={`relative inline-block ${refusing ? "animate-refuse-text" : ""}`}>
+                    {refusing ? "Dommage..." : "Non merci"}
+                  </span>
+                  {refusing && (
+                    <span className="absolute left-3 right-3 top-1/2 h-[2px] bg-terracotta/70 animate-strikethrough origin-left" />
+                  )}
                 </button>
               </div>
             </div>

@@ -221,6 +221,35 @@ body {
   animation: slow-spin 12s linear infinite;
 }
 
+@keyframes strikethrough {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
+@keyframes refuse-text {
+  0% { opacity: 1; }
+  30% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+@keyframes refuse-btn {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.97); opacity: 0.8; }
+  100% { transform: scale(0.92); opacity: 0.5; }
+}
+
+.animate-strikethrough {
+  animation: strikethrough 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.animate-refuse-text {
+  animation: refuse-text 0.8s ease forwards;
+}
+
+.animate-refuse-btn {
+  animation: refuse-btn 0.8s ease forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
