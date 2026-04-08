@@ -118,31 +118,31 @@ export default function CookieBanner() {
           : "translate-y-0 opacity-100 animate-slide-up"
       }`}
     >
-      <div className="max-w-2xl mx-auto bg-[#1a1a2e] border border-amber-500/20 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden">
+      <div className="max-w-2xl mx-auto bg-cream border border-terracotta rounded-2xl shadow-2xl shadow-brown/20 overflow-hidden">
         {/* Top accent bar */}
-        <div className="h-1 bg-gradient-to-r from-red-600 via-amber-500 to-red-600" />
+        <div className="h-1 bg-gradient-to-r from-red via-gold to-red" />
 
         <div className="p-5 md:p-6">
           <div className="flex gap-4 items-start">
             {/* Pizza icon */}
             <div className="flex-shrink-0 w-14 h-14 relative">
               <div className="absolute inset-0 animate-slow-spin">
-                <PizzaSlice className="w-14 h-14 drop-shadow-lg" />
+                <PizzaSlice className="w-14 h-14 drop-shadow-md" />
               </div>
             </div>
 
             <div className="flex-1 min-w-0">
               {/* Title */}
-              <h3 className="font-bold text-white text-lg leading-tight mb-1">
+              <h3 className="font-display font-bold text-brown text-lg leading-tight mb-1">
                 Nos cookies sont faits maison !
               </h3>
-              <p className="text-sm text-slate-300 leading-relaxed mb-4">
+              <p className="text-sm text-brown-light leading-relaxed mb-4">
                 Comme nos pizzas, on met que le necessaire : des cookies pour
                 analyser la frequentation et ameliorer votre experience. Pas de
                 garniture superflue, promis.{" "}
                 <a
                   href="/mentions-legales"
-                  className="text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors"
+                  className="text-red hover:text-red-dark underline underline-offset-2 transition-colors"
                 >
                   En savoir plus
                 </a>
@@ -152,13 +152,13 @@ export default function CookieBanner() {
               <div className="flex flex-wrap gap-3">
                 <button
                   onClick={() => handleChoice("accepted")}
-                  className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-sm rounded-xl transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-900/30"
+                  className="px-5 py-2.5 bg-red hover:bg-red-dark text-white font-bold text-sm rounded-xl transition-all active:scale-95 cursor-pointer shadow-lg shadow-red/20"
                 >
                   Miam, j&apos;accepte !
                 </button>
                 <button
                   onClick={() => handleChoice("refused")}
-                  className="px-5 py-2.5 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white font-medium text-sm rounded-xl border border-slate-600/50 transition-all active:scale-95 cursor-pointer"
+                  className="px-5 py-2.5 bg-cream-dark hover:bg-terracotta text-brown-light hover:text-brown font-medium text-sm rounded-xl border border-terracotta transition-all active:scale-95 cursor-pointer"
                 >
                   Non merci
                 </button>
