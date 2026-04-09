@@ -10,9 +10,9 @@ export const RESTAURANT = {
   mapsUrl:
     "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2636.5!2d2.339222!3d48.7054041!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e671d1e2c4a2e7%3A0x1234567890abcdef!2s36+Rue+de+l'%C3%89glise%2C+91420+Morangis!5e0!3m2!1sfr!2sfr!4v1",
   mapsLink: "https://goo.gl/maps/QXyJHS1RNQMmkRJ37",
-  menuPdf: "https://cdn.website.dish.co/media/82/5b/9435796/MENU-SUR-PLACE.pdf",
-  menuEmporterPdf: "https://cdn.website.dish.co/media/5f/40/9568511/MENU-A-EMPORTER.pdf",
-  menuDessertsPdf: "https://cdn.website.dish.co/media/6f/d2/9435808/CARTE-DES-DESSERTS.pdf",
+  menuPdf: "/menu-sur-place.pdf",
+  menuEmporterPdf: "/menu-a-emporter.pdf",
+  menuDessertsPdf: "/carte-desserts.pdf",
   logo: "https://cdn.website.dish.co/media/45/3d/5928679/L-ARC-EN-CIEL-LOGO-JPG-A-DETOURER-png.jpg",
   orderUrl: "#commander",
   hours: [
