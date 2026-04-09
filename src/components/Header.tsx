@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
 import { RESTAURANT } from "@/data/restaurant";
 import { RainbowArc } from "./Decorations";
 
@@ -38,15 +39,25 @@ export default function Header({ restaurant }: HeaderProps = {}) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo */}
-          <a href="#" className="flex flex-col items-start group">
-            <span
-              className={`font-[family-name:var(--font-display)] text-xl sm:text-2xl font-bold tracking-tight transition-colors duration-500 ${
-                scrolled ? "text-brown" : "text-white-warm"
-              }`}
-            >
-              L&apos;Arc en Ciel
-            </span>
-            <RainbowArc className={`w-20 sm:w-24 -mt-1 transition-opacity duration-500 ${scrolled ? "opacity-80" : "opacity-50"}`} />
+          <a href="#" className="flex items-center gap-2 sm:gap-3 group">
+            <Image
+              src={data.logo}
+              alt="Logo L'Arc en Ciel"
+              width={44}
+              height={36}
+              className="w-9 h-auto sm:w-11 transition-opacity duration-500 group-hover:opacity-90"
+              unoptimized
+            />
+            <div className="flex flex-col items-start">
+              <span
+                className={`font-[family-name:var(--font-display)] text-xl sm:text-2xl font-bold tracking-tight transition-colors duration-500 ${
+                  scrolled ? "text-brown" : "text-white-warm"
+                }`}
+              >
+                L&apos;Arc en Ciel
+              </span>
+              <RainbowArc className={`w-20 sm:w-24 -mt-1 transition-opacity duration-500 ${scrolled ? "opacity-80" : "opacity-50"}`} />
+            </div>
           </a>
 
           {/* Desktop Nav */}

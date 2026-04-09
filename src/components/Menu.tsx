@@ -205,13 +205,13 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
           </AnimatePresence>
         </motion.div>
 
-        {/* Menu PDF link */}
+        {/* Menu PDF links */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ delay: 0.2, duration: 0.6 }}
-          className="text-center mt-14"
+          className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mt-14"
         >
           <a
             href={data.menuPdf}
@@ -222,7 +222,29 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            Télécharger le menu complet (PDF)
+            Menu sur place (PDF)
+          </a>
+          <a
+            href={data.menuEmporterPdf}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-brown-light font-semibold hover:text-red transition-colors border-b-2 border-terracotta/30 hover:border-red pb-1"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Menu à emporter (PDF)
+          </a>
+          <a
+            href={data.menuDessertsPdf}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-brown-light font-semibold hover:text-red transition-colors border-b-2 border-terracotta/30 hover:border-red pb-1"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Carte des desserts (PDF)
           </a>
         </motion.div>
       </div>
