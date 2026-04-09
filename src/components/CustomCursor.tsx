@@ -22,7 +22,9 @@ export default function CustomCursor() {
     document.body.style.cursor = "none";
 
     const onMove = (e: MouseEvent) => {
-      dot.style.transform = `translate(${e.clientX - 6}px, ${e.clientY - 6}px)`;
+      const isExpanded = dot.classList.contains("cursor-expanded");
+      const offset = isExpanded ? 20 : 6;
+      dot.style.transform = `translate(${e.clientX - offset}px, ${e.clientY - offset}px)`;
     };
 
     // Expand on interactive elements

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Devis - Site Web L'Arc en Ciel</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,400&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #1a1a1a;
+      background: #f5f5f5;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 20px auto;
+      background: white;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+    }
+
+    @media print {
+      body { background: white; }
+      .page {
+        margin: 0;
+        box-shadow: none;
+        page-break-after: always;
+      }
+      .no-print { display: none !important; }
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #2C1810 0%, #3D2518 100%);
+      color: white;
+      padding: 32px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #C0392B, #B8922F, #C0392B);
+    }
+
+    .brand h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .brand p {
+      font-size: 11px;
+      color: #E8C97A;
+      margin-top: 4px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .doc-info {
+      text-align: right;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .doc-info .label {
+      color: #E8C97A;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .doc-info .devis-number {
+      font-size: 20px;
+      font-weight: 700;
+      color: #E8C97A;
+    }
+
+    /* ── Content ── */
+    .content {
+      padding: 32px 40px;
+    }
+
+    /* ── Parties ── */
+    .parties {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 28px;
+    }
+
+    .party {
+      flex: 1;
+      padding: 16px 20px;
+      border-radius: 8px;
+    }
+
+    .party.emetteur {
+      background: #fdf8f0;
+      border-left: 3px solid #B8922F;
+    }
+
+    .party.destinataire {
+      background: #fdf8f0;
+      border-left: 3px solid #C0392B;
+    }
+
+    .party-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #888;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .party h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+
+    .party p {
+      font-size: 11px;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    /* ── Object ── */
+    .objet {
+      background: linear-gradient(135deg, #2C1810, #3D2518);
+      color: white;
+      padding: 14px 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .objet-logo {
+      flex-shrink: 0;
+      width: 50px;
+      height: 40px;
+      border-radius: 6px;
+    }
+
+    .objet-text .objet-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #E8C97A;
+      margin-bottom: 4px;
+    }
+
+    .objet-text h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    /* ── Table ── */
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 14px;
+      color: #2C1810;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #E8D5C0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title .icon {
+      width: 20px;
+      height: 20px;
+      background: #C0392B;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 11px;
+    }
+
+    thead th {
+      background: #fdf8f0;
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      font-weight: 600;
+      border-bottom: 2px solid #E8D5C0;
+    }
+
+    thead th:last-child,
+    thead th:nth-child(3) {
+      text-align: right;
+    }
+
+    tbody td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f0ebe3;
+      vertical-align: top;
+    }
+
+    tbody td:last-child,
+    tbody td:nth-child(3) {
+      text-align: right;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .item-name {
+      font-weight: 600;
+      color: #2C1810;
+    }
+
+    .item-desc {
+      font-size: 10px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .included {
+      color: #27AE60;
+      font-weight: 600;
+      font-size: 10px;
+    }
+
+    /* ── Totals ── */
+    .totals {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 24px;
+    }
+
+    .totals-box {
+      width: 240px;
+      border: 2px solid #2C1810;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 16px;
+      font-size: 12px;
+      border-bottom: 1px solid #f0ebe3;
+    }
+
+    .total-row.final {
+      background: linear-gradient(135deg, #2C1810, #3D2518);
+      color: white;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 12px 16px;
+      border-bottom: none;
+    }
+
+    .total-row.final .amount {
+      color: #E8C97A;
+    }
+
+    /* ── Conditions ── */
+    .conditions {
+      margin-top: 8px;
+    }
+
+    .conditions h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 13px;
+      color: #2C1810;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #E8D5C0;
+    }
+
+    .conditions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 24px;
+    }
+
+    .condition-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      font-size: 10px;
+      color: #555;
+      line-height: 1.5;
+    }
+
+    .condition-item .dot {
+      width: 5px;
+      height: 5px;
+      background: #C0392B;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex-shrink: 0;
+    }
+
+    /* ── Bonus ── */
+    .bonus-box {
+      margin-top: 16px;
+      background: linear-gradient(135deg, #fdf8f0, #f5ede0);
+      border: 1px dashed #B8922F;
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bonus-icon {
+      font-size: 24px;
+    }
+
+    .bonus-text h4 {
+      font-size: 11px;
+      font-weight: 700;
+      color: #2C1810;
+    }
+
+    .bonus-text p {
+      font-size: 10px;
+      color: #888;
+    }
+
+    /* ── Signature ── */
+    .signature {
+      margin-top: 24px;
+      display: flex;
+      gap: 40px;
+    }
+
+    .sig-block {
+      flex: 1;
+      border-top: 1px solid #E8D5C0;
+      padding-top: 8px;
+    }
+
+    .sig-block .sig-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .sig-block .sig-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: #2C1810;
+    }
+
+    .sig-space {
+      height: 50px;
+      border-bottom: 1px dotted #ccc;
+      margin-top: 8px;
+    }
+
+    .sig-date {
+      font-size: 10px;
+      color: #888;
+      margin-top: 6px;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #fdf8f0;
+      padding: 10px 40px;
+      text-align: center;
+      font-size: 9px;
+      color: #999;
+      border-top: 1px solid #E8D5C0;
+    }
+
+    /* ── Print button ── */
+    .print-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: linear-gradient(135deg, #C0392B, #A93226);
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(192,57,43,0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+      z-index: 1000;
+    }
+
+    .print-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(192,57,43,0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <button class="print-btn no-print" onclick="window.print()">Telecharger en PDF</button>
+
+  <div class="page">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        <h1>Kevin Aubouin</h1>
+        <p>Creation de sites web</p>
+      </div>
+      <div class="doc-info">
+        <div class="label">Devis n&deg;</div>
+        <div class="devis-number">2026-001</div>
+        <div style="margin-top: 6px;">
+          <span class="label">Date :</span> 8 avril 2026<br>
+          <span class="label">Validite :</span> 30 jours
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <!-- Parties -->
+      <div class="parties">
+        <div class="party emetteur">
+          <div class="party-label">Emetteur</div>
+          <h3>Kevin Aubouin</h3>
+          <p>
+            Developpeur Web Freelance<br>
+            Email : kevin.aubouin@email.com<br>
+            Tel : 06 XX XX XX XX
+          </p>
+        </div>
+        <div class="party destinataire">
+          <div class="party-label">Destinataire</div>
+          <h3>Pizzeria L'Arc en Ciel</h3>
+          <p>
+            36 Rue de l'Eglise<br>
+            91420 Morangis<br>
+          </p>
+        </div>
+      </div>
+
+      <!-- Objet -->
+      <div class="objet">
+        <img class="objet-logo" src="https://cdn.website.dish.co/media/45/3d/5928679/L-ARC-EN-CIEL-LOGO-JPG-A-DETOURER-png.jpg" alt="Logo L'Arc en Ciel" />
+        <div class="objet-text">
+          <div class="objet-label">Objet</div>
+          <h2>Creation de site web vitrine &mdash; Pizzeria L'Arc en Ciel</h2>
+        </div>
+      </div>
+
+      <!-- Site Web -->
+      <div class="section-title">
+        <div class="icon">1</div>
+        Design & Developpement du site
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50%">Designation</th>
+            <th>Qte</th>
+            <th>Prix unit. HT</th>
+            <th>Total HT</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="item-name">Direction artistique & Design</div>
+              <div class="item-desc">Charte graphique, palette couleurs, typographies, identite visuelle web</div>
+            </td>
+            <td>1</td>
+            <td>200,00 &euro;</td>
+            <td>200,00 &euro;</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Integration des pages</div>
+              <div class="item-desc">Accueil, Menu, Galerie, Services, Infos pratiques, Contact, Mentions legales + sections</div>
+            </td>
+            <td>9</td>
+            <td>60,00 &euro;</td>
+            <td>540,00 &euro;</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Design responsive (mobile + tablette)</div>
+              <div class="item-desc">Adaptation pixel-perfect sur tous les ecrans</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Animations & micro-interactions</div>
+              <div class="item-desc">Scroll animations, transitions, effets visuels premium</div>
+            </td>
+            <td>1</td>
+            <td>100,00 &euro;</td>
+            <td>100,00 &euro;</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Fonctionnalites -->
+      <div class="section-title">
+        <div class="icon">2</div>
+        Fonctionnalites & Services inclus
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50%">Designation</th>
+            <th>Qte</th>
+            <th>Prix unit. HT</th>
+            <th>Total HT</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="item-name">CMS Sanity (gestion du menu)</div>
+              <div class="item-desc">Interface simple pour modifier pizzas, prix, categories sans toucher au code</div>
+            </td>
+            <td>1</td>
+            <td>150,00 &euro;</td>
+            <td>150,00 &euro;</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">SEO technique complet</div>
+              <div class="item-desc">Balises meta, Open Graph, Schema.org, sitemap, robots.txt, Google Search Console</div>
+            </td>
+            <td>1</td>
+            <td>100,00 &euro;</td>
+            <td>100,00 &euro;</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Google Analytics (GA4)</div>
+              <div class="item-desc">Suivi des visiteurs, pages vues, conversions — tableau de bord inclus</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Bandeau cookies RGPD</div>
+              <div class="item-desc">Conformite legale, consentement utilisateur, design personnalise</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Page Mentions Legales</div>
+              <div class="item-desc">Conformite legale obligatoire</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Hebergement & mise en ligne</div>
+              <div class="item-desc">Deploiement sur Vercel — hebergement gratuit, HTTPS, CDN mondial</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="item-name">Formation utilisation CMS</div>
+              <div class="item-desc">30 min de formation pour modifier le menu en autonomie</div>
+            </td>
+            <td>1</td>
+            <td><span class="included">Inclus</span></td>
+            <td><span class="included">Inclus</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Totals -->
+      <div class="totals">
+        <div class="totals-box">
+          <div class="total-row">
+            <span>Total HT</span>
+            <span>1 090,00 &euro;</span>
+          </div>
+          <div class="total-row">
+            <span>TVA (10%)</span>
+            <span>110,00 &euro;</span>
+          </div>
+          <div class="total-row final">
+            <span>Total TTC</span>
+            <span class="amount">1 200,00 &euro;</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conditions -->
+      <div class="conditions">
+        <h3>Conditions</h3>
+        <div class="conditions-grid">
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Acompte :</strong> 50% a la commande (600 &euro;), solde a la livraison</span>
+          </div>
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Delai :</strong> Livraison sous 7 jours ouvres apres validation</span>
+          </div>
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Revisions :</strong> 2 tours de corrections inclus</span>
+          </div>
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Paiement :</strong> Virement bancaire ou especes</span>
+          </div>
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Domaine :</strong> Transfert ou connexion du domaine existant inclus</span>
+          </div>
+          <div class="condition-item">
+            <div class="dot"></div>
+            <span><strong>Validite :</strong> Ce devis est valable 30 jours</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bonus -->
+      <div class="bonus-box">
+        <div class="bonus-icon">&#127873;</div>
+        <div class="bonus-text">
+          <h4>Bonus parrainage</h4>
+          <p>Recommandez-moi a un autre commercant et recevez 100 &euro; de reduction sur une future prestation.</p>
+        </div>
+      </div>
+
+      <!-- Signature -->
+      <div class="signature">
+        <div class="sig-block">
+          <div class="sig-label">Le prestataire</div>
+          <div class="sig-name">Kevin Aubouin</div>
+          <div class="sig-space"></div>
+          <div class="sig-date">Date : ___/___/______</div>
+        </div>
+        <div class="sig-block">
+          <div class="sig-label">Le client &mdash; Bon pour accord</div>
+          <div class="sig-name">Pizzeria L'Arc en Ciel</div>
+          <div class="sig-space"></div>
+          <div class="sig-date">Date : ___/___/______</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      Kevin Aubouin &mdash; Developpeur Web Freelance &mdash; Devis n&deg;2026-001 &mdash; Page 1/1
+    </div>
+  </div>
+
+</body>
+</html>

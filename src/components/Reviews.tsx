@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { REVIEWS } from "@/data/restaurant";
+import { REVIEWS, RESTAURANT } from "@/data/restaurant";
 import Marquee from "./Marquee";
 
 function Stars({ count, size = "w-4 h-4" }: { count: number; size?: string }) {
@@ -98,6 +98,30 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
             </motion.article>
           ))}
         </div>
+
+        {/* Laisser un avis CTA */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          className="text-center mt-12"
+        >
+          <a
+            href={RESTAURANT.mapsLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-gold/20 hover:bg-gold/30 text-gold-light font-semibold px-6 py-3 rounded-full border border-gold/30 hover:border-gold/50 transition-all duration-300 hover:scale-105"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+            </svg>
+            Laisser un avis sur Google
+          </a>
+          <p className="text-white-warm/50 text-xs mt-3">
+            Vos avis nous aident a nous ameliorer !
+          </p>
+        </motion.div>
       </div>
 
       {/* Marquee bottom — solid color + low opacity */}
