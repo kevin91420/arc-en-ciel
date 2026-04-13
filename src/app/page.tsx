@@ -78,7 +78,7 @@ export default async function Home() {
     phoneHref: `tel:+33${settings.phone?.replace(/\s/g, "").replace(/^0/, "")}`,
     email: settings.email,
     address: settings.address,
-    mapsUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2636.5!2d2.3386382!3d48.7053926!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e6761a75633f79%3A0xe6d4d01a0b30c2c9!2sL'ARC%20EN%20CIEL%20PIZZA%20AU%20FEU%20DE%20BOIS!5e0!3m2!1sfr!2sfr!4v1",
+    mapsUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1318.2!2d2.3387!3d48.7056!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e6761a75633f79%3A0xe6d4d01a0b30c2c9!2sL'ARC%20EN%20CIEL%20PIZZA%20AU%20FEU%20DE%20BOIS!5e0!3m2!1sfr!2sfr!4v1",
     mapsLink: settings.mapsLink,
     menuPdf: "https://cdn.website.dish.co/media/82/5b/9435796/MENU-SUR-PLACE.pdf",
     menuEmporterPdf: "https://cdn.website.dish.co/media/5f/40/9568511/MENU-A-EMPORTER.pdf",
