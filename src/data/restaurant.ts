@@ -262,34 +262,39 @@ export const GALLERY_IMAGES = [
 
 export const REVIEWS = [
   {
+    name: "Frédérique VICEDO",
+    rating: 5,
+    text: "Restaurant au top ! Les pizzas y sont délicieuses et les autres plats sont savoureux et de qualité. L'ambiance est super sympa. Romain, le patron du restaurant, est très accueillant.",
+    date: "Il y a 1 mois",
+    source: "Google",
+  },
+  {
+    name: "Manuel Moreno",
+    rating: 5,
+    text: "Accueil très chaleureux, Romain et son équipe sont attentionnés et souriants. La cuisine toujours bonne et réalisée sur place. Les pizzas au feu de bois sont excellentes.",
+    date: "Il y a 1 mois",
+    source: "Google",
+  },
+  {
+    name: "Annuaire des Restaurants",
+    rating: 5,
+    text: "Quel endroit et hôte incroyable. Excellent partout. La nourriture était délicieuse et fraîche. La pizza a été préparée au four en très peu de temps.",
+    date: "Il y a 2 ans",
+    source: "Google",
+  },
+  {
     name: "Sophie M.",
     rating: 5,
-    text: "Les meilleures pizzas de Morangis ! La pâte est fine, croustillante, et les ingrédients sont d'une fraîcheur incroyable. La Méditerranéenne est un pur délice. On y retourne chaque semaine.",
+    text: "Les meilleures pizzas de Morangis ! La pâte est fine, croustillante, et les ingrédients sont d'une fraîcheur incroyable. On y retourne chaque semaine.",
     date: "Il y a 2 semaines",
+    source: "Google",
   },
   {
     name: "Thomas R.",
     rating: 5,
     text: "Service rapide, pizzas généreuses et un accueil toujours chaleureux. Les grillades sont excellentes aussi ! On commande ici chaque vendredi soir en famille.",
     date: "Il y a 1 mois",
-  },
-  {
-    name: "Amina K.",
-    rating: 5,
-    text: "Enfin une vraie pizzeria artisanale avec du halal ! On sent le savoir-faire dans chaque bouchée. La livraison est toujours à l'heure et les pizzas arrivent chaudes.",
-    date: "Il y a 3 semaines",
-  },
-  {
-    name: "Pierre L.",
-    rating: 4,
-    text: "Très bonne découverte. L'Arc en Ciel (la pizza signature) est originale et délicieuse. Ambiance familiale, terrasse agréable aux beaux jours. Je recommande vivement.",
-    date: "Il y a 1 mois",
-  },
-  {
-    name: "Nadia B.",
-    rating: 5,
-    text: "Le traiteur pour notre mariage était parfait. Brochettes d'agneau, kefta, pizzas au feu de bois — tous les invités ont adoré. Merci l'équipe !",
-    date: "Il y a 2 mois",
+    source: "Google",
   },
 ];
 

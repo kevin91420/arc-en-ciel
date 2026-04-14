@@ -2,9 +2,27 @@
 
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
+import { useId } from "react";
 import { RESTAURANT } from "@/data/restaurant";
 
 const MapboxMap = dynamic(() => import("./MapboxMap"), { ssr: false });
+
+function DotPattern({ className = "" }: { className?: string }) {
+  const id = useId();
+  return (
+    <svg
+      aria-hidden="true"
+      className={`pointer-events-none absolute inset-0 h-full w-full ${className}`}
+    >
+      <defs>
+        <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="currentColor" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id})`} />
+    </svg>
+  );
+}
 
 interface InfosPratiquesProps {
   restaurant?: any;
@@ -13,8 +31,11 @@ interface InfosPratiquesProps {
 export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {}) {
   const data = restaurant || RESTAURANT;
   return (
-    <section id="contact" className="py-20 sm:py-28 bg-white-warm bg-topo">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="contact" className="relative py-20 sm:py-28 bg-cream overflow-hidden">
+      {/* Dot pattern background */}
+      <DotPattern className="text-brown/[0.07] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_50%,white,transparent)]" />
+
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.p
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -43,7 +64,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
             className="space-y-6"
           >
             {/* Horaires */}
-            <div className="bg-cream rounded-2xl p-6 sm:p-8">
+            <div className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06]">
               <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -72,7 +93,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
             </div>
 
             {/* Contact */}
-            <div className="bg-cream rounded-2xl p-6 sm:p-8">
+            <div className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06]">
               <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />

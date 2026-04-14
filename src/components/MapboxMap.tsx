@@ -7,8 +7,8 @@ import "mapbox-gl/dist/mapbox-gl.css";
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
 // L'Arc en Ciel — 36 Rue de l'Église, 91420 Morangis
-const LNG = 2.3387;
-const LAT = 48.7056;
+const LNG = 2.3392627;
+const LAT = 48.705374;
 
 export default function MapboxMap() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -24,9 +24,9 @@ export default function MapboxMap() {
       container: containerRef.current,
       style: "mapbox://styles/mapbox/streets-v12",
       center: [LNG, LAT],
-      zoom: 16,
-      pitch: 55,
-      bearing: -20,
+      zoom: 17,
+      pitch: 0,
+      bearing: 0,
       antialias: true,
       attributionControl: false,
     });

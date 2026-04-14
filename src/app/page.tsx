@@ -9,7 +9,6 @@ import {
   getPizzas,
   getReviews,
   getHeroImages,
-  getGalleryImages,
   getServices,
 } from "@/sanity/queries";
 
@@ -17,20 +16,19 @@ const Footer = dynamic(() => import("@/components/Footer"));
 const Menu = dynamic(() => import("@/components/Menu"));
 const Services = dynamic(() => import("@/components/Services"));
 const OrderCTA = dynamic(() => import("@/components/OrderCTA"));
-const Gallery = dynamic(() => import("@/components/Gallery"));
+
 const Reviews = dynamic(() => import("@/components/Reviews"));
 const InfosPratiques = dynamic(() => import("@/components/InfosPratiques"));
 
 export const revalidate = 60; // Revalide les données toutes les 60s
 
 export default async function Home() {
-  const [settings, pizzas, reviews, heroImages, galleryImages, services] =
+  const [settings, pizzas, reviews, heroImages, services] =
     await Promise.all([
       getSettings(),
       getPizzas(),
       getReviews(),
       getHeroImages(),
-      getGalleryImages(),
       getServices(),
     ]);
 
@@ -39,7 +37,7 @@ export default async function Home() {
 
   if (!hasData) {
     // Import statique fallback
-    const { RESTAURANT, PIZZAS, REVIEWS, HERO_IMAGES, GALLERY_IMAGES } =
+    const { RESTAURANT, PIZZAS, REVIEWS, HERO_IMAGES } =
       await import("@/data/restaurant");
     return (
       <>
@@ -54,12 +52,8 @@ export default async function Home() {
           <Menu />
           <Services />
           <OrderCTA />
-          <Gallery />
-          <div className="text-brown bg-cream-dark -mb-px h-6 sm:h-8">
-            <WaveDivider className="h-full" />
-          </div>
           <Reviews />
-          <div className="text-white-warm bg-brown -mb-px h-6 sm:h-8">
+          <div className="text-cream bg-brown -mb-px h-6 sm:h-8">
             <WaveDivider className="h-full" />
           </div>
           <InfosPratiques />
@@ -107,12 +101,8 @@ export default async function Home() {
         <Menu pizzas={pizzas} restaurant={restaurant} />
         <Services services={services} />
         <OrderCTA restaurant={restaurant} />
-        <Gallery galleryImages={galleryImages} />
-        <div className="text-brown bg-cream-dark -mb-px h-6 sm:h-8">
-          <WaveDivider className="h-full" />
-        </div>
         <Reviews reviews={reviews} />
-        <div className="text-white-warm bg-brown -mb-px h-6 sm:h-8">
+        <div className="text-cream bg-brown -mb-px h-6 sm:h-8">
           <WaveDivider className="h-full" />
         </div>
         <InfosPratiques restaurant={restaurant} />
