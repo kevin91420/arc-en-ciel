@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Image from "next/image";
 import { RESTAURANT } from "@/data/restaurant";
 import { RainbowArc } from "./Decorations";
 
@@ -40,14 +39,6 @@ export default function Header({ restaurant }: HeaderProps = {}) {
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo */}
           <a href="#" className="flex items-center gap-2 sm:gap-3 group">
-            <Image
-              src={data.logo}
-              alt="Logo L'Arc en Ciel"
-              width={44}
-              height={36}
-              className="w-9 h-auto sm:w-11 transition-opacity duration-500 group-hover:opacity-90"
-              unoptimized
-            />
             <div className="flex flex-col items-start">
               <span
                 className={`font-[family-name:var(--font-display)] text-xl sm:text-2xl font-bold tracking-tight transition-colors duration-500 ${
