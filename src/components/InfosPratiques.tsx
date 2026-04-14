@@ -33,7 +33,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
   return (
     <section id="contact" className="relative py-20 sm:py-28 bg-cream overflow-hidden">
       {/* Dot pattern background */}
-      <DotPattern className="text-brown/[0.05]" />
+      <DotPattern className="text-brown/[0.08]" />
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.p

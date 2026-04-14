@@ -59,9 +59,7 @@ export default function Signature() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.2 }}
                 transition={{ duration: 0.7, delay: 0.15 * i, ease: [0.16, 1, 0.3, 1] }}
-                className={`group relative bg-cream rounded-2xl p-8 sm:p-10 border border-terracotta/20 hover:border-terracotta/40 transition-colors duration-300 ${
-                  i === 1 ? "md:-translate-y-4" : ""
-                }`}
+                className="group relative bg-cream rounded-2xl p-8 sm:p-10 border-2 border-terracotta/15 hover:border-gold transition-all duration-500 hover:shadow-lg hover:shadow-gold/10"
               >
                 <div className="w-14 h-14 mb-6 rounded-xl bg-terracotta/20 flex items-center justify-center text-terracotta-deep group-hover:bg-terracotta/30 transition-colors duration-300">
                   <Icon className="w-7 h-7" />
