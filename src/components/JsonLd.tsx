@@ -51,13 +51,13 @@ export default function JsonLd() {
     ],
     aggregateRating: {
       "@type": "AggregateRating",
-      ratingValue: "4.8",
+      ratingValue: "4.4",
       bestRating: "5",
-      ratingCount: "5",
+      reviewCount: "430",
     },
     hasMenu: {
       "@type": "Menu",
-      url: "https://cdn.website.dish.co/media/16/69/6003710/Menu.pdf",
+      url: "https://cdn.website.dish.co/media/82/5b/9435796/MENU-SUR-PLACE.pdf",
     },
   };
 

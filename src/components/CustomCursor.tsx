@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * Simple custom cursor — dot follows mouse instantly (no smooth/lag).
- * Hidden on touch devices.
+ * Hidden on touch devices. Does NOT hide the native cursor for accessibility.
  */
 export default function CustomCursor() {
   const dotRef = useRef<HTMLDivElement>(null);
@@ -19,7 +19,8 @@ export default function CustomCursor() {
       return;
     }
 
-    document.body.style.cursor = "none";
+    // Track already-bound elements to avoid duplicate listeners
+    const boundElements = new WeakSet<Element>();
 
     const onMove = (e: MouseEvent) => {
       const isExpanded = dot.classList.contains("cursor-expanded");
@@ -33,6 +34,8 @@ export default function CustomCursor() {
 
     const bindHover = () => {
       document.querySelectorAll("a, button, [data-cursor-expand]").forEach((el) => {
+        if (boundElements.has(el)) return;
+        boundElements.add(el);
         el.addEventListener("mouseenter", onEnter);
         el.addEventListener("mouseleave", onLeave);
       });
@@ -46,7 +49,6 @@ export default function CustomCursor() {
 
     return () => {
       window.removeEventListener("mousemove", onMove);
-      document.body.style.cursor = "";
       observer.disconnect();
     };
   }, []);

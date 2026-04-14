@@ -72,11 +72,17 @@ const ServiceCard = memo(function ServiceCard({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.15 }}
       transition={{ duration: 0.7, delay: index * 0.08, ease: [0.16, 1, 0.3, 1] }}
+      tabIndex={0}
+      role="group"
+      aria-label={card.label}
       onMouseEnter={() => setHovered(index)}
       onMouseLeave={() => setHovered(null)}
+      onFocus={() => setHovered(index)}
+      onBlur={() => setHovered(null)}
       className={`
         relative overflow-hidden rounded-2xl cursor-pointer
-        transition-all duration-500 ease-out
+        transition-all duration-500 ease-out outline-none
+        focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-brown
         ${isFeatured ? "md:row-span-2" : ""}
         ${hovered === index ? "scale-[1.02] shadow-2xl shadow-black/40 z-10" : ""}
       `}
@@ -162,7 +168,7 @@ export default function Services({ services }: ServicesProps = {}) {
   const handleSetHovered = useCallback((i: number | null) => setHovered(i), []);
 
   return (
-    <section className="relative py-24 sm:py-32 bg-brown overflow-hidden">
+    <section id="services" className="relative py-24 sm:py-32 bg-brown overflow-hidden">
       {/* Grain texture overlay */}
       <div className="absolute inset-0 opacity-[0.04]" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
@@ -216,7 +222,7 @@ export default function Services({ services }: ServicesProps = {}) {
         </div>
 
         {/* Focus Cards Grid — 2 tall + 4 smaller */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 auto-rows-[200px] sm:auto-rows-[220px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 auto-rows-[240px] sm:auto-rows-[260px]">
           {SERVICES_DATA.map((card, i) => (
             <ServiceCard
               key={card.label}

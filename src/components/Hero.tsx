@@ -15,15 +15,22 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
   const images = heroImages || HERO_IMAGES;
   const data = restaurant || RESTAURANT;
   const [current, setCurrent] = useState(0);
+  const [paused, setPaused] = useState(false);
 
   const next = useCallback(() => {
     setCurrent((prev) => (prev + 1) % images.length);
   }, []);
 
+  const goTo = useCallback((i: number) => {
+    setCurrent(i);
+    setPaused(true);
+  }, []);
+
   useEffect(() => {
+    if (paused) return;
     const timer = setInterval(next, 6000);
     return () => clearInterval(timer);
-  }, [next]);
+  }, [next, paused]);
 
   return (
     <section className="relative h-screen w-full overflow-hidden">
@@ -110,10 +117,15 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
           className="flex flex-col sm:flex-row gap-4"
         >
           <a
-            href={data.orderUrl}
-            className="bg-red hover:bg-red-dark text-white-warm font-bold text-lg px-8 py-4 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 animate-pulse-warm"
+            href={data.phoneHref}
+            className="bg-red hover:bg-red-dark text-white-warm font-bold text-lg px-8 py-4 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
           >
-            Commander en ligne
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              Commander par telephone
+            </span>
           </a>
           <a
             href="#menu"
@@ -139,7 +151,7 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
               36 Rue de l&apos;Église, Morangis
             </span>
             <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
@@ -151,7 +163,7 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
             {images.map((_, i) => (
               <button
                 key={i}
-                onClick={() => setCurrent(i)}
+                onClick={() => goTo(i)}
                 className={`h-1.5 rounded-full transition-all duration-500 ${
                   i === current
                     ? "bg-gold w-8"
