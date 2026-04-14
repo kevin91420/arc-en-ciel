@@ -46,9 +46,8 @@ export default async function Home() {
         <main id="main-content">
           <Hero />
           <Signature />
-          <div className="relative">
-            <div className="h-4 sm:h-5 bg-brown bg-paper" />
-            <div className="h-3 bg-gradient-to-b from-brown/20 to-transparent" />
+          <div className="bg-cream bg-paper">
+            <WaveDivider className="text-white-warm h-6 sm:h-8" flip />
           </div>
           <Menu />
           <Services />
@@ -96,8 +95,8 @@ export default async function Home() {
       <main id="main-content">
         <Hero heroImages={heroImages} restaurant={restaurant} />
         <Signature />
-        <div className="text-cream bg-white-warm -mb-px h-6 sm:h-8">
-          <WaveDivider className="h-full" />
+        <div className="bg-cream bg-paper">
+          <WaveDivider className="text-white-warm h-6 sm:h-8" flip />
         </div>
         <Menu pizzas={pizzas} restaurant={restaurant} />
         <Services services={services} />
