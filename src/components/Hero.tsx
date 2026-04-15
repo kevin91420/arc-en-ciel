@@ -176,10 +176,10 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
               <button
                 key={i}
                 onClick={() => goTo(i)}
-                className={`h-1.5 rounded-full transition-all duration-500 ${
+                className={`h-6 rounded-full transition-all duration-500 p-1 ${
                   i === current
-                    ? "bg-gold w-8"
-                    : "bg-white-warm/40 w-1.5 hover:bg-white-warm/70"
+                    ? "bg-gold w-10"
+                    : "bg-white-warm/40 w-6 hover:bg-white-warm/70"
                 }`}
                 aria-label={`Photo ${i + 1} sur ${images.length}`}
               />

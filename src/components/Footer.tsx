@@ -133,7 +133,7 @@ export default function Footer({ restaurant }: FooterProps = {}) {
               {data.hours.map((h: any) => (
                 <div key={h.days} className="flex justify-between text-sm">
                   <span className="text-white-warm/70">{h.days}</span>
-                  <time className={h.time === "Fermé" ? "text-red font-semibold" : "text-white-warm/50"}>
+                  <time className={h.time === "Fermé" ? "text-[#FF6B6B] font-semibold" : "text-white-warm/50"}>
                     {h.time}
                   </time>
                 </div>

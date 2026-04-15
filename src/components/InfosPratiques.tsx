@@ -82,7 +82,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
                     <time
                       className={`text-sm ${
                         h.time === "Fermé"
-                          ? "text-red font-semibold"
+                          ? "text-red-dark font-semibold"
                           : "text-brown-light"
                       }`}
                     >

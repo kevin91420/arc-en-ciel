@@ -32,7 +32,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
     <section id="avis" className="relative bg-brown overflow-hidden">
       {/* Marquee top — solid color + low opacity container to stay vectoriel/crisp */}
       <div className="relative py-6 border-b border-white-warm/5">
-        <Marquee text="Feu de Bois" className="text-white-warm opacity-[0.04]" />
+        <Marquee text="Feu de Bois" className="text-brown opacity-[0.06]" />
       </div>
 
       <div className="relative py-20 sm:py-28 max-w-7xl mx-auto px-4 sm:px-6">
@@ -140,7 +140,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
 
       {/* Marquee bottom — solid color + low opacity */}
       <div className="relative py-6 border-t border-white-warm/5">
-        <Marquee text="Arc en Ciel" className="text-white-warm opacity-[0.04]" />
+        <Marquee text="Arc en Ciel" className="text-brown opacity-[0.06]" />
       </div>
     </section>
   );
