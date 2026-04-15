@@ -41,7 +41,7 @@ export default function Signature() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.3 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            className="font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold leading-tight"
+            className="text-balance font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold leading-tight"
           >
             Ce qui fait la{" "}
             <span className="italic text-terracotta-deep">différence</span>

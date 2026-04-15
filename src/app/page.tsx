@@ -95,9 +95,6 @@ export default async function Home() {
       <main id="main-content">
         <Hero heroImages={heroImages} restaurant={restaurant} />
         <Signature />
-        <div className="bg-cream bg-paper">
-          <WaveDivider className="text-white-warm h-6 sm:h-8" flip />
-        </div>
         <Menu pizzas={pizzas} restaurant={restaurant} />
         <Services services={services} />
         <OrderCTA restaurant={restaurant} />

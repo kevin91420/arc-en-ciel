@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useState, useCallback, memo } from "react";
+import Image from "next/image";
 import { RESTAURANT } from "@/data/restaurant";
 
 /* ═══════════════════════════════════════════════════════════
@@ -83,17 +84,20 @@ const ServiceCard = memo(function ServiceCard({
         relative overflow-hidden rounded-2xl cursor-pointer
         transition-all duration-500 ease-out outline-none
         focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-brown
-        ${isFeatured ? "md:row-span-2" : ""}
+        ${isFeatured ? "md:row-span-2 min-h-[480px] sm:min-h-[524px]" : "min-h-[240px] sm:min-h-[260px]"}
         ${hovered === index ? "scale-[1.02] shadow-2xl shadow-black/40 z-10" : ""}
       `}
     >
       {/* Background Image */}
       <div className="absolute inset-0">
-        <img
+        <Image
           src={card.image}
           alt={card.label}
+          fill
+          sizes="(max-width: 768px) 50vw, 25vw"
+          loading="lazy"
           className={`
-            w-full h-full object-cover
+            object-cover
             transition-transform duration-700 ease-out
             ${hovered === index ? "scale-110" : "scale-100"}
           `}
@@ -115,7 +119,7 @@ const ServiceCard = memo(function ServiceCard({
         backdrop-blur-md border transition-all duration-500
         ${hovered === index
           ? "bg-red/80 border-red/50 text-white-warm"
-          : "bg-white/10 border-white/20 text-white/70"
+          : "bg-white/10 border-white/20 text-white/90"
         }
       `}>
         {card.tag}
@@ -196,7 +200,7 @@ export default function Services({ services }: ServicesProps = {}) {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.1, duration: 0.6 }}
-            className="font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-5"
+            className="text-balance font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-5"
           >
             Bien plus qu&apos;un restaurant
           </motion.h2>
@@ -219,7 +223,7 @@ export default function Services({ services }: ServicesProps = {}) {
         </div>
 
         {/* Focus Cards Grid — 2 tall + 4 smaller */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 auto-rows-[240px] sm:auto-rows-[260px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {SERVICES_DATA.map((card, i) => (
             <ServiceCard
               key={card.label}

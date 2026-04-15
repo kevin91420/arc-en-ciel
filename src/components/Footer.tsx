@@ -86,7 +86,7 @@ export default function Footer({ restaurant }: FooterProps = {}) {
             </a>
             <a
               href={`mailto:${data.email}`}
-              className="text-white-warm/60 hover:text-gold-light transition-colors text-sm"
+              className="text-white-warm/70 hover:text-gold-light transition-colors text-sm"
             >
               {data.email}
             </a>
@@ -100,7 +100,6 @@ export default function Footer({ restaurant }: FooterProps = {}) {
             <ul className="space-y-3">
               {[
                 { label: "Notre carte", href: "#menu" },
-                { label: "Galerie", href: "#galerie" },
                 { label: "Avis clients", href: "#avis" },
                 { label: "Infos pratiques", href: "#contact" },
                 { label: "Menu complet (PDF)", href: data.menuPdf, external: true },
@@ -111,7 +110,7 @@ export default function Footer({ restaurant }: FooterProps = {}) {
                     {...("external" in link && link.external
                       ? { target: "_blank", rel: "noopener noreferrer" }
                       : {})}
-                    className="text-white-warm/60 hover:text-gold transition-colors text-sm inline-flex items-center gap-1.5"
+                    className="text-white-warm/70 hover:text-gold transition-colors text-sm inline-flex items-center gap-1.5"
                   >
                     {link.label}
                     {"external" in link && link.external && (
@@ -151,10 +150,10 @@ export default function Footer({ restaurant }: FooterProps = {}) {
 
         {/* Bottom bar */}
         <div className="mt-14 pt-8 border-t border-white-warm/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-white-warm/60 text-xs">
+          <p className="text-white-warm/70 text-xs">
             &copy; {new Date().getFullYear()} L&apos;Arc en Ciel — Tous droits réservés
           </p>
-          <div className="flex gap-6 text-white-warm/60 text-xs">
+          <div className="flex gap-6 text-white-warm/70 text-xs">
             <a href="/mentions-legales" className="hover:text-white-warm/80 transition-colors">
               Mentions légales
             </a>

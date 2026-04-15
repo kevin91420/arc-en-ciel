@@ -1,23 +1,34 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Simple custom cursor — dot follows mouse instantly (no smooth/lag).
- * Hidden on touch devices. Does NOT hide the native cursor for accessibility.
+ * Hidden on touch devices and when prefers-reduced-motion is set.
+ * Does NOT hide the native cursor for accessibility.
  */
 export default function CustomCursor() {
   const dotRef = useRef<HTMLDivElement>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   useEffect(() => {
     const dot = dotRef.current;
     if (!dot) return;
 
-    // Skip on touch devices
-    if (window.matchMedia("(pointer: coarse)").matches) {
+    // Skip on touch devices or reduced motion
+    if (reducedMotion || window.matchMedia("(pointer: coarse)").matches) {
       dot.style.display = "none";
       return;
     }
+    dot.style.display = "";
 
     // Track already-bound elements to avoid duplicate listeners
     const boundElements = new WeakSet<Element>();
@@ -51,7 +62,7 @@ export default function CustomCursor() {
       window.removeEventListener("mousemove", onMove);
       observer.disconnect();
     };
-  }, []);
+  }, [reducedMotion]);
 
   return (
     <div

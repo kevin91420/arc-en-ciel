@@ -1,25 +1,32 @@
 export default function JsonLd() {
   const restaurant = {
     "@context": "https://schema.org",
-    "@type": "Restaurant",
+    "@type": ["Restaurant", "LocalBusiness"],
+    "@id": "https://arc-en-ciel-theta.vercel.app/#restaurant",
     name: "L'Arc en Ciel",
     image: "https://arc-en-ciel-theta.vercel.app/opengraph-image",
     url: "https://arc-en-ciel-theta.vercel.app",
     telephone: "+33164540030",
     email: "larcencielmorangis@gmail.com",
+    description:
+      "Pizzas artisanales cuites au feu de bois, grillades, pâtes et spécialités méditerranéennes à Morangis. Cuisine maison, ingrédients frais, ambiance familiale.",
     address: {
       "@type": "PostalAddress",
-      streetAddress: "36 Rue de l'Église",
+      streetAddress: "36 Rue de l'Eglise",
       addressLocality: "Morangis",
       postalCode: "91420",
       addressCountry: "FR",
     },
     geo: {
       "@type": "GeoCoordinates",
-      latitude: 48.7054,
-      longitude: 2.3392,
+      latitude: 48.7056,
+      longitude: 2.3387,
     },
-    servesCuisine: ["Pizza", "Grillades", "Méditerranéenne"],
+    areaServed: {
+      "@type": "City",
+      name: "Morangis",
+    },
+    servesCuisine: ["Pizza", "Grillades", "Pâtes", "Méditerranéenne"],
     priceRange: "€€",
     openingHoursSpecification: [
       {
@@ -55,10 +62,28 @@ export default function JsonLd() {
       bestRating: "5",
       reviewCount: "430",
     },
-    hasMenu: {
-      "@type": "Menu",
-      url: "https://cdn.website.dish.co/media/82/5b/9435796/MENU-SUR-PLACE.pdf",
-    },
+    hasMenu: [
+      {
+        "@type": "Menu",
+        name: "Menu sur place",
+        url: "https://cdn.website.dish.co/media/82/5b/9435796/MENU-SUR-PLACE.pdf",
+      },
+      {
+        "@type": "Menu",
+        name: "Menu à emporter",
+        url: "https://cdn.website.dish.co/media/5f/40/9568511/MENU-A-EMPORTER.pdf",
+      },
+      {
+        "@type": "Menu",
+        name: "Carte des desserts",
+        url: "https://cdn.website.dish.co/media/6f/d2/9435808/CARTE-DES-DESSERTS.pdf",
+      },
+    ],
+    sameAs: [
+      "https://facebook.com/larcencielmorangis",
+      "https://instagram.com/larcencielmorangis",
+      "https://goo.gl/maps/QXyJHS1RNQMmkRJ37",
+    ],
   };
 
   const menu = {
@@ -116,6 +141,19 @@ export default function JsonLd() {
     ],
   };
 
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Accueil",
+        item: "https://arc-en-ciel-theta.vercel.app",
+      },
+    ],
+  };
+
   return (
     <>
       <script
@@ -125,6 +163,10 @@ export default function JsonLd() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(menu) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
       />
     </>
   );

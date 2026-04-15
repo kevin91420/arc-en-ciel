@@ -50,7 +50,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
           transition={{ delay: 0.1 }}
-          className="text-center font-[family-name:var(--font-display)] text-white-warm text-3xl sm:text-5xl font-bold mb-4"
+          className="text-center text-balance font-[family-name:var(--font-display)] text-white-warm text-3xl sm:text-5xl font-bold mb-4"
         >
           Avis Clients
         </motion.h2>
@@ -73,7 +73,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
             <div className="flex items-center gap-2">
               <span className="text-white-warm font-bold text-xl">4,4</span>
               <Stars count={4} size="w-4 h-4" />
-              <span className="text-white-warm/60 text-sm">(430 avis)</span>
+              <span className="text-white-warm/80 text-sm">(430 avis)</span>
             </div>
           </div>
         </motion.div>
@@ -104,7 +104,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
                 <div>
                   <cite className="text-white-warm font-semibold text-sm not-italic">{review.name}</cite>
                   <div className="flex items-center gap-2">
-                    <p className="text-white-warm/60 text-xs">{review.date}</p>
+                    <p className="text-white-warm/80 text-xs">{review.date}</p>
                     <span className="text-white-warm/40 text-xs">· Google</span>
                   </div>
                 </div>

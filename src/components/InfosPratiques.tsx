@@ -31,7 +31,7 @@ interface InfosPratiquesProps {
 export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {}) {
   const data = restaurant || RESTAURANT;
   return (
-    <section id="contact" className="relative py-20 sm:py-28 bg-cream overflow-hidden">
+    <section id="contact" className="relative py-24 sm:py-32 bg-cream overflow-hidden">
       {/* Dot pattern background */}
       <DotPattern className="text-brown/[0.08]" />
 
@@ -49,7 +49,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
           transition={{ delay: 0.1 }}
-          className="text-center font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold mb-14"
+          className="text-center text-balance font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold mb-14"
         >
           Infos Pratiques
         </motion.h2>

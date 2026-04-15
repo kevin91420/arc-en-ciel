@@ -42,12 +42,28 @@ export const metadata: Metadata = {
     locale: "fr_FR",
     siteName: "L'Arc en Ciel",
     url: "https://arc-en-ciel-theta.vercel.app",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "L'Arc en Ciel - Pizzeria au feu de bois à Morangis",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "L'Arc en Ciel | Pizzeria Méditerranéenne - Morangis",
     description:
       "Pizzas au feu de bois & grillades à Morangis. Découvrez notre carte !",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "L'Arc en Ciel - Pizzeria au feu de bois à Morangis",
+      },
+    ],
   },
   alternates: {
     canonical: "https://arc-en-ciel-theta.vercel.app",

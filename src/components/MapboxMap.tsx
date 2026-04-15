@@ -136,7 +136,11 @@ export default function MapboxMap() {
   }
 
   return (
-    <div className="relative w-full h-full">
+    <div
+      className="relative w-full h-full"
+      role="img"
+      aria-label="Carte montrant L'Arc en Ciel, 36 Rue de l'Église, Morangis"
+    >
       <div
         ref={containerRef}
         className={`w-full h-full transition-opacity duration-700 ${loaded ? "opacity-100" : "opacity-0"}`}

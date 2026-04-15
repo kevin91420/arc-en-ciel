@@ -43,7 +43,7 @@ export default function OrderCTA({ restaurant }: OrderCTAProps = {}) {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
           transition={{ delay: 0.1, duration: 0.6 }}
-          className="font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-4"
+          className="text-balance font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-4"
         >
           Une envie de{" "}
           <span className="font-[family-name:var(--font-script)] text-gold-light font-normal">
