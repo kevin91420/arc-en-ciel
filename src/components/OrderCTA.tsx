@@ -45,11 +45,10 @@ export default function OrderCTA({ restaurant }: OrderCTAProps = {}) {
           transition={{ delay: 0.1, duration: 0.6 }}
           className="text-balance font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-4"
         >
-          Une envie de{" "}
+          Commander{" "}
           <span className="font-[family-name:var(--font-script)] text-gold-light font-normal">
-            pizza
-          </span>{" "}
-          ?
+            votre pizza
+          </span>
         </motion.h2>
         <motion.p
           initial={{ opacity: 0, y: 20 }}

@@ -202,8 +202,17 @@ export default function Services({ services }: ServicesProps = {}) {
             transition={{ delay: 0.1, duration: 0.6 }}
             className="text-balance font-[family-name:var(--font-display)] text-white-warm text-4xl sm:text-6xl font-bold mb-5"
           >
-            Bien plus qu&apos;un restaurant
+            Nos Services
           </motion.h2>
+          <motion.p
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.15 }}
+            className="text-white-warm/70 text-lg sm:text-xl font-[family-name:var(--font-display)] italic -mt-2 mb-3"
+          >
+            Bien plus qu&apos;un restaurant
+          </motion.p>
           <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}

@@ -61,7 +61,8 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
             transition={{ delay: 0.1 }}
             className="text-balance font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold"
           >
-            Nos <span className="italic text-red">Pizzas</span>
+            Nos <span className="italic text-red">Pizzas</span>{" "}
+            <span className="block text-base sm:text-lg font-normal text-brown-light/70 mt-1">au feu de bois</span>
           </motion.h2>
         </div>
 
@@ -98,7 +99,7 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
         {/* Featured signature card */}
         <AnimatePresence mode="popLayout">
           {featured && (
-            <motion.div
+            <motion.article
               key="featured"
               layout
               initial={{ opacity: 0, y: 20 }}
@@ -142,7 +143,7 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
                   <OliveBranch className="w-24 text-white-warm/10 mt-6" />
                 </div>
               </div>
-            </motion.div>
+            </motion.article>
           )}
         </AnimatePresence>
 
@@ -150,7 +151,7 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
           <AnimatePresence mode="popLayout">
             {rest.map((pizza, i) => (
-              <motion.div
+              <motion.article
                 key={pizza.id}
                 layout
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -205,14 +206,14 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
                     </svg>
                   </a>
                 </div>
-              </motion.div>
+              </motion.article>
             ))}
           </AnimatePresence>
         </motion.div>
         </div>
 
         {/* Full Menu CTA — entice customers to explore beyond pizzas */}
-        <div className="mt-20 sm:mt-28">
+        <div id="menu-complet" className="mt-20 sm:mt-28">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}

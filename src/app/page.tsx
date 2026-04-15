@@ -44,6 +44,9 @@ export default async function Home() {
         <CustomCursor />
         <Header />
         <main id="main-content">
+          <p className="sr-only">
+            L&apos;Arc en Ciel est une pizzeria au feu de bois située au 36 rue de l&apos;Église à Morangis (91420), dans l&apos;Essonne. Notre restaurant méditerranéen propose des pizzas artisanales cuites au feu de bois, des grillades, des pâtes fraîches et des salades. Nous offrons la livraison à domicile, la vente à emporter et un service sur place avec terrasse. Ouvert du lundi au dimanche, L&apos;Arc en Ciel est votre pizzeria de quartier à Morangis pour des repas savoureux préparés avec des ingrédients frais et de qualité. Commandez par téléphone au 01 64 54 00 30. Note Google : 4,4/5 avec plus de 430 avis clients.
+          </p>
           <Hero />
           <Signature />
           <div className="bg-cream bg-paper">
@@ -93,6 +96,9 @@ export default async function Home() {
       <CustomCursor />
       <Header restaurant={restaurant} />
       <main id="main-content">
+        <p className="sr-only">
+          L&apos;Arc en Ciel est une pizzeria au feu de bois située au 36 rue de l&apos;Église à Morangis (91420), dans l&apos;Essonne. Notre restaurant méditerranéen propose des pizzas artisanales cuites au feu de bois, des grillades, des pâtes fraîches et des salades. Nous offrons la livraison à domicile, la vente à emporter et un service sur place avec terrasse. Ouvert du lundi au dimanche, L&apos;Arc en Ciel est votre pizzeria de quartier à Morangis pour des repas savoureux préparés avec des ingrédients frais et de qualité. Commandez par téléphone au 01 64 54 00 30. Note Google : 4,4/5 avec plus de 430 avis clients.
+        </p>
         <Hero heroImages={heroImages} restaurant={restaurant} />
         <Signature />
         <Menu pizzas={pizzas} restaurant={restaurant} />

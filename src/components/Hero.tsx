@@ -33,7 +33,7 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
   }, [next, paused]);
 
   return (
-    <section className="relative h-screen w-full overflow-hidden">
+    <section id="accueil" className="relative h-screen w-full overflow-hidden">
       {/* Background slides */}
       <AnimatePresence mode="sync">
         <motion.div
@@ -91,7 +91,10 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
           transition={{ delay: 0.6, duration: 0.8 }}
           className="font-[family-name:var(--font-display)] text-white-warm text-5xl sm:text-7xl lg:text-[6.5rem] font-bold tracking-tight mb-3 leading-[0.95]"
         >
-          L&apos;Arc en Ciel
+          <span className="block">L&apos;Arc en Ciel</span>
+          <span className="block text-gold-light/90 text-lg sm:text-2xl lg:text-3xl font-normal tracking-wide mt-2">
+            Pizzeria au feu de bois à Morangis
+          </span>
         </motion.h1>
 
         <motion.div
@@ -105,9 +108,18 @@ export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.9, duration: 0.8 }}
-          className="text-white-warm/80 text-base sm:text-lg tracking-[0.25em] uppercase font-light mb-10"
+          className="text-white-warm/80 text-base sm:text-lg tracking-[0.25em] uppercase font-light mb-4"
         >
-          Pizzas au Feu de Bois &middot; Grillades &middot; Morangis
+          Pizzas au Feu de Bois &middot; Grillades &middot; Pâtes &middot; Cuisine Méditerranéenne
+        </motion.p>
+
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.0, duration: 0.8 }}
+          className="text-white-warm/60 text-sm sm:text-base max-w-xl mx-auto mb-10 leading-relaxed"
+        >
+          Restaurant L&apos;Arc en Ciel à Morangis (91420) &mdash; pizzas artisanales cuites au feu de bois, grillades savoureuses et spécialités méditerranéennes. Livraison, à emporter ou sur place.
         </motion.p>
 
         <motion.div

@@ -51,7 +51,8 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
           transition={{ delay: 0.1 }}
           className="text-center text-balance font-[family-name:var(--font-display)] text-brown text-3xl sm:text-5xl font-bold mb-14"
         >
-          Infos Pratiques
+          Nous Trouver{" "}
+          <span className="block text-base sm:text-lg font-normal text-brown-light/70 mt-1">Infos pratiques &amp; horaires</span>
         </motion.h2>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
@@ -64,7 +65,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
             className="space-y-6"
           >
             {/* Horaires */}
-            <div className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06]">
+            <div id="horaires" className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06]">
               <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -78,7 +79,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
                     className="flex justify-between items-center py-1.5 border-b border-terracotta/15 last:border-0"
                   >
                     <span className="text-brown font-medium">{h.days}</span>
-                    <span
+                    <time
                       className={`text-sm ${
                         h.time === "Fermé"
                           ? "text-red font-semibold"
@@ -86,14 +87,14 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
                       }`}
                     >
                       {h.time}
-                    </span>
+                    </time>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Contact */}
-            <div className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06]">
+            <address id="adresse" className="bg-white-warm rounded-2xl p-6 sm:p-8 border border-brown/[0.06] not-italic">
               <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-brown mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -131,7 +132,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
                   </span>
                 ))}
               </div>
-            </div>
+            </address>
           </motion.div>
 
           {/* Map */}

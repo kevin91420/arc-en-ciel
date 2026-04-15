@@ -66,7 +66,7 @@ export default function Footer({ restaurant }: FooterProps = {}) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
           {/* Contact info */}
-          <div>
+          <address className="not-italic">
             <h4 className="text-white-warm font-semibold mb-5 text-xs uppercase tracking-[0.2em]">
               Nous trouver
             </h4>
@@ -90,7 +90,7 @@ export default function Footer({ restaurant }: FooterProps = {}) {
             >
               {data.email}
             </a>
-          </div>
+          </address>
 
           {/* Navigation */}
           <nav aria-label="Pied de page">
@@ -133,9 +133,9 @@ export default function Footer({ restaurant }: FooterProps = {}) {
               {data.hours.map((h: any) => (
                 <div key={h.days} className="flex justify-between text-sm">
                   <span className="text-white-warm/70">{h.days}</span>
-                  <span className={h.time === "Fermé" ? "text-red font-semibold" : "text-white-warm/50"}>
+                  <time className={h.time === "Fermé" ? "text-red font-semibold" : "text-white-warm/50"}>
                     {h.time}
-                  </span>
+                  </time>
                 </div>
               ))}
             </div>

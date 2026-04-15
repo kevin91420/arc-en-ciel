@@ -104,7 +104,7 @@ export default function Reviews({ reviews }: ReviewsProps = {}) {
                 <div>
                   <cite className="text-white-warm font-semibold text-sm not-italic">{review.name}</cite>
                   <div className="flex items-center gap-2">
-                    <p className="text-white-warm/80 text-xs">{review.date}</p>
+                    <time className="text-white-warm/80 text-xs">{review.date}</time>
                     <span className="text-white-warm/40 text-xs">· Google</span>
                   </div>
                 </div>

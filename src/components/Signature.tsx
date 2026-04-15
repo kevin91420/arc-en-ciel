@@ -12,7 +12,7 @@ const ICONS: Record<string, React.FC<{ className?: string }>> = {
 
 export default function Signature() {
   return (
-    <section className="relative py-24 sm:py-32 bg-white-warm bg-linen vignette-warm overflow-hidden">
+    <section id="savoir-faire" className="relative py-24 sm:py-32 bg-white-warm bg-linen vignette-warm overflow-hidden">
       {/* Decorative olive branches */}
       <OliveBranch className="absolute top-8 left-8 w-20 text-terracotta-deep opacity-20 -rotate-12 hidden lg:block" />
       <OliveBranch className="absolute bottom-8 right-8 w-20 text-terracotta-deep opacity-20 rotate-12 hidden lg:block" />
