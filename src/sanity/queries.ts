@@ -18,7 +18,7 @@ export async function getPizzas() {
       _id,
       "id": slug.current,
       name, ingredients, price, category,
-      "image": image.asset->url,
+      image,
       badge, featured
     }`
   );
@@ -38,8 +38,8 @@ export async function getHeroImages() {
   return client.fetch(
     `*[_type == "heroImage"] | order(order asc){
       _id,
-      "src": image.asset->url,
-      alt
+      alt,
+      image
     }`
   );
 }

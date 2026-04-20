@@ -1,11 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import dynamic from "next/dynamic";
 import { useId } from "react";
 import { RESTAURANT } from "@/data/restaurant";
-
-const MapboxMap = dynamic(() => import("./MapboxMap"), { ssr: false });
+import MapboxLazy from "./MapboxLazy";
 
 function DotPattern({ className = "" }: { className?: string }) {
   const id = useId();
@@ -143,7 +141,7 @@ export default function InfosPratiques({ restaurant }: InfosPratiquesProps = {})
             transition={{ duration: 0.6 }}
             className="rounded-2xl overflow-hidden shadow-lg shadow-brown/10 h-[400px] lg:h-full min-h-[400px]"
           >
-            <MapboxMap />
+            <MapboxLazy mapsLink={data.mapsLink} />
           </motion.div>
         </div>
       </div>

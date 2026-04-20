@@ -11,14 +11,20 @@ const HERO_VIDEO_MOBILE =
 
 interface HeroProps {
   heroImages?: { src: string; alt?: string }[];
+  /** URL poster optimisée (ex. Sanity via urlFor), prioritaire sur heroImages[0].src */
+  heroPosterUrl?: string;
   restaurant?: { phoneHref: string };
 }
 
-export default function Hero({ heroImages, restaurant }: HeroProps = {}) {
+export default function Hero({
+  heroImages,
+  heroPosterUrl,
+  restaurant,
+}: HeroProps = {}) {
   const data = restaurant || RESTAURANT;
   const images =
     heroImages && heroImages.length > 0 ? heroImages : HERO_IMAGES;
-  const posterSrc = images[0]?.src;
+  const posterSrc = heroPosterUrl || images[0]?.src;
 
   return (
     <section id="accueil" className="relative h-screen w-full overflow-hidden bg-black">

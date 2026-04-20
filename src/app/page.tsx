@@ -11,6 +11,7 @@ import {
   getHeroImages,
   getServices,
 } from "@/sanity/queries";
+import { isSanityImageRef, urlFor } from "@/sanity/image";
 
 const Footer = dynamic(() => import("@/components/Footer"));
 const Menu = dynamic(() => import("@/components/Menu"));
@@ -91,6 +92,49 @@ export default async function Home() {
     services: services || [],
   };
 
+  const heroPosterUrl =
+    heroImages?.[0] && isSanityImageRef(heroImages[0].image)
+      ? urlFor(heroImages[0].image)
+          .width(960)
+          .height(540)
+          .fit("crop")
+          .auto("format")
+          .quality(78)
+          .url()
+      : undefined;
+
+  const heroImagesForClient =
+    heroImages?.length &&
+    heroImages.some((h: { image?: unknown }) => isSanityImageRef(h.image))
+      ? heroImages.map((h: { alt?: string; image?: unknown }) => ({
+          alt: h.alt ?? "",
+          src: isSanityImageRef(h.image)
+            ? urlFor(h.image)
+                .width(960)
+                .height(540)
+                .fit("crop")
+                .auto("format")
+                .quality(80)
+                .url()
+            : "",
+        }))
+      : undefined;
+
+  const pizzasForMenu = pizzas.map(
+    (p: { image?: unknown; featured?: boolean }) => ({
+      ...p,
+      image: isSanityImageRef(p.image)
+        ? urlFor(p.image)
+            .width(p.featured ? 1200 : 640)
+            .height(p.featured ? 800 : 427)
+            .fit("crop")
+            .auto("format")
+            .quality(82)
+            .url()
+        : "",
+    })
+  );
+
   return (
     <>
       <CustomCursor />
@@ -99,9 +143,13 @@ export default async function Home() {
         <p className="sr-only">
           L&apos;Arc en Ciel est une pizzeria au feu de bois située au 36 rue de l&apos;Église à Morangis (91420), dans l&apos;Essonne. Notre restaurant méditerranéen propose des pizzas artisanales cuites au feu de bois, des grillades, des pâtes fraîches et des salades. Nous offrons la livraison à domicile, la vente à emporter et un service sur place avec terrasse. Ouvert du lundi au dimanche, L&apos;Arc en Ciel est votre pizzeria de quartier à Morangis pour des repas savoureux préparés avec des ingrédients frais et de qualité. Commandez par téléphone au 01 64 54 00 30. Note Google : 4,4/5 avec plus de 430 avis clients.
         </p>
-        <Hero heroImages={heroImages} restaurant={restaurant} />
+        <Hero
+          heroPosterUrl={heroPosterUrl}
+          heroImages={heroImagesForClient}
+          restaurant={restaurant}
+        />
         <Signature />
-        <Menu pizzas={pizzas} restaurant={restaurant} />
+        <Menu pizzas={pizzasForMenu} restaurant={restaurant} />
         <Services services={services} />
         <OrderCTA restaurant={restaurant} />
         <Reviews reviews={reviews} />

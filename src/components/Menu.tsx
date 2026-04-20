@@ -110,11 +110,11 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
               <div className="relative bg-brown rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-0">
                 <div className="relative h-64 lg:h-auto min-h-[280px]">
                   <Image
-                    src={featured.image.replace("w=600", "w=900").replace("h=400", "h=600")}
+                    src={featured.image}
                     alt={`Pizza ${featured.name} — ${featured.ingredients}`}
                     fill
                     className="object-cover group-hover:scale-[1.02] transition-transform duration-700"
-                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    sizes="(max-width: 1024px) 100vw, min(640px, 50vw)"
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent to-brown/30 lg:bg-gradient-to-l" />
@@ -167,7 +167,7 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
                     alt={`Pizza ${pizza.name} — ${pizza.ingredients}`}
                     fill
                     className="object-cover group-hover:scale-[1.03] transition-transform duration-500"
-                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 400px"
                     loading="lazy"
                   />
                   {pizza.badge && (

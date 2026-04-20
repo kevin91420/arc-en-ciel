@@ -7,3 +7,16 @@ const builder = imageUrlBuilder(client);
 export function urlFor(source: any) {
   return builder.image(source);
 }
+
+/** True si le champ image Sanity peut être passé à urlFor(). */
+export function isSanityImageRef(image: unknown): image is Parameters<
+  typeof urlFor
+>[0] {
+  return (
+    typeof image === "object" &&
+    image !== null &&
+    "asset" in image &&
+    typeof (image as { asset?: { _ref?: string } }).asset === "object" &&
+    Boolean((image as { asset?: { _ref?: string } }).asset?._ref)
+  );
+}
