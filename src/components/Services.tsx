@@ -26,7 +26,7 @@ const SERVICES_DATA = [
   {
     label: "Terrasse",
     desc: "Profitez des beaux jours en exterieur",
-    image: "https://images.unsplash.com/photo-1600093463592-8e36ae95ef56?w=800&h=600&fit=crop&q=80",
+    image: "/08-facade-arc-en-ciel.png",
     tag: "Plein air",
   },
   {
