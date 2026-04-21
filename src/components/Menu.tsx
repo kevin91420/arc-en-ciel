@@ -231,6 +231,45 @@ export default function Menu({ pizzas, restaurant }: MenuProps = {}) {
             </p>
           </motion.div>
 
+          {/* Featured — Carte digitale */}
+          <motion.a
+            href="/carte"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            className="group relative block max-w-4xl mx-auto mb-5 sm:mb-6 bg-gradient-to-br from-brown to-brown/90 rounded-2xl overflow-hidden shadow-xl shadow-brown/20 hover:shadow-2xl hover:shadow-gold/20 transition-all duration-500 hover:-translate-y-1"
+          >
+            <div className="relative z-10 flex items-center justify-between gap-6 p-6 sm:p-8">
+              <div className="flex items-center gap-5 sm:gap-6">
+                {/* Decorative icon */}
+                <div className="flex-shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-gold/20 flex items-center justify-center text-gold-light group-hover:scale-110 transition-transform duration-500">
+                  <svg className="w-7 h-7 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="inline-block bg-gold text-brown text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full mb-2">
+                    Nouveau
+                  </span>
+                  <h4 className="font-[family-name:var(--font-display)] text-white-warm text-xl sm:text-2xl font-bold mb-1">
+                    Voir la carte complète
+                  </h4>
+                  <p className="text-white-warm/60 text-xs sm:text-sm leading-relaxed">
+                    Entrées, pizzas, grillades, pâtes, salades, desserts & boissons
+                  </p>
+                </div>
+              </div>
+              <span className="hidden sm:inline-flex items-center justify-center flex-shrink-0 w-12 h-12 rounded-full bg-gold text-brown group-hover:translate-x-1 transition-transform duration-300">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </span>
+            </div>
+            {/* Shine on hover */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-gold/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 -translate-x-full group-hover:translate-x-full" />
+          </motion.a>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 max-w-4xl mx-auto">
             {[
               {

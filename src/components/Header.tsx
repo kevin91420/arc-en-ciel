@@ -21,8 +21,9 @@ export default function Header({ restaurant }: HeaderProps = {}) {
   }, []);
 
   const navLinks = [
-    { label: "Notre carte", href: "#menu" },
-    { label: "Avis clients", href: "#avis" },
+    { label: "Nos pizzas", href: "#menu" },
+    { label: "La carte", href: "/carte" },
+    { label: "Avis", href: "#avis" },
     { label: "Contact", href: "#contact" },
   ];
 
