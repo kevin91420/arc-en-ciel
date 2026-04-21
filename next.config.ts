@@ -30,6 +30,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "cdn.website.dish.co",
       },
+      {
+        protocol: "https",
+        hostname: "api.qrserver.com",
+      },
     ],
   },
 };
