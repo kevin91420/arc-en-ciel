@@ -22,7 +22,7 @@ export default function MobileMenuPage({
   searchParamsPromise: Promise<{ table?: string }>;
 }) {
   const searchParams = use(searchParamsPromise);
-  const tableNumber = searchParams.table;
+  const tableFromUrl = searchParams.table;
 
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DietaryTag | "all">("all");
@@ -31,10 +31,15 @@ export default function MobileMenuPage({
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [callWaiterOpen, setCallWaiterOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [storedTable, setStoredTable] = useState<string | undefined>(undefined);
+  const [tablePromptOpen, setTablePromptOpen] = useState(false);
+
+  /* Effective table number — URL param wins, otherwise use the stored one */
+  const tableNumber = tableFromUrl || storedTable;
 
   const mainRef = useRef<HTMLDivElement>(null);
 
-  /* Load favorites from localStorage */
+  /* Load favorites + stored table + onboarding state */
   useEffect(() => {
     const stored = localStorage.getItem("arc-favorites");
     if (stored) {
@@ -43,12 +48,35 @@ export default function MobileMenuPage({
       } catch {}
     }
 
+    /* Smart table default: if no ?table= in URL, check localStorage or prompt */
+    if (!tableFromUrl) {
+      const storedT = localStorage.getItem("arc-table");
+      if (storedT) {
+        setStoredTable(storedT);
+      } else {
+        setTablePromptOpen(true);
+      }
+    }
+
     /* Show onboarding first time */
     const seen = localStorage.getItem("arc-onboarding-seen");
     if (!seen) {
       setShowOnboarding(true);
     }
-  }, []);
+  }, [tableFromUrl]);
+
+  const saveTable = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      localStorage.setItem("arc-table", trimmed);
+      setStoredTable(trimmed);
+    }
+    setTablePromptOpen(false);
+  };
+
+  const skipTable = () => {
+    setTablePromptOpen(false);
+  };
 
   const toggleFavorite = (id: string) => {
     setFavorites((prev) => {
@@ -381,6 +409,13 @@ export default function MobileMenuPage({
       <AnimatePresence>
         {showOnboarding && <Onboarding onDismiss={dismissOnboarding} totalItems={totalItems} tableNumber={tableNumber} />}
       </AnimatePresence>
+
+      {/* ═══ TABLE PROMPT ═══ */}
+      <AnimatePresence>
+        {tablePromptOpen && (
+          <TablePrompt onSave={saveTable} onSkip={skipTable} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -675,8 +710,33 @@ function CallWaiterModal({
     { icon: "🍞", label: "Plus de pain" },
   ];
 
-  const send = (label: string) => {
-    // TODO: POST to /api/waiter with tableNumber + label (hook up later to CRM)
+  const send = async (label: string) => {
+    const table = Number(tableNumber) || 0;
+
+    /* Demo case: no table number known — skip API, show confirmation anyway */
+    if (table === 0) {
+      setConfirmed(true);
+      setTimeout(() => {
+        onClose();
+        setConfirmed(false);
+      }, 1800);
+      return;
+    }
+
+    /* Fire-and-forget POST. We show confirmation regardless — don't bother the user with errors. */
+    try {
+      await fetch("/api/waiter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          table_number: table,
+          request_type: label,
+        }),
+      });
+    } catch {
+      /* swallow — UX continues */
+    }
+
     setConfirmed(true);
     setTimeout(() => {
       onClose();
@@ -828,5 +888,88 @@ function Onboarding({
         </motion.button>
       </div>
     </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLE PROMPT — Ask user for their table number once
+   ═══════════════════════════════════════════════════════════ */
+function TablePrompt({
+  onSave,
+  onSkip,
+}: {
+  onSave: (value: string) => void;
+  onSkip: () => void;
+}) {
+  const [value, setValue] = useState("");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (value.trim()) onSave(value);
+  };
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[55] bg-brown/70 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ y: "100%", opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: "100%", opacity: 0 }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        className="fixed bottom-0 left-0 right-0 z-[56] bg-cream rounded-t-3xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-md sm:left-1/2 sm:-translate-x-1/2 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-3xl sm:shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="table-prompt-title"
+      >
+        <div className="sm:hidden w-10 h-1 rounded-full bg-brown/20 mx-auto mb-5" />
+
+        <div className="text-center mb-5">
+          <div className="text-4xl mb-2">🍽️</div>
+          <h3
+            id="table-prompt-title"
+            className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown mb-1"
+          >
+            Quelle est votre numéro de table ?
+          </h3>
+          <p className="text-brown-light text-sm leading-relaxed">
+            Pour nous permettre de vous servir plus vite. Vous pouvez ignorer
+            cette étape.
+          </p>
+        </div>
+
+        <form onSubmit={submit} className="space-y-3">
+          <input
+            type="number"
+            inputMode="numeric"
+            autoFocus
+            min={1}
+            max={99}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Ex : 7"
+            className="w-full px-4 py-3.5 bg-white-warm border border-terracotta/30 rounded-xl text-brown text-center text-xl font-bold placeholder:text-brown-light/40 focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 transition"
+          />
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            className="w-full bg-red hover:bg-red-dark text-white-warm font-bold py-3.5 rounded-full transition-all duration-300 shadow-lg shadow-red/20 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Valider
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            className="w-full text-center text-xs text-brown-light py-2 hover:text-brown transition-colors"
+          >
+            Pas de numéro de table → Continuer
+          </button>
+        </form>
+      </motion.div>
+    </>
   );
 }

@@ -20,6 +20,7 @@ const OrderCTA = dynamic(() => import("@/components/OrderCTA"));
 
 const Reviews = dynamic(() => import("@/components/Reviews"));
 const InfosPratiques = dynamic(() => import("@/components/InfosPratiques"));
+const Reservation = dynamic(() => import("@/components/Reservation"));
 
 export const revalidate = 60; // Revalide les données toutes les 60s
 
@@ -56,6 +57,7 @@ export default async function Home() {
           <Menu />
           <Services />
           <OrderCTA />
+          <Reservation />
           <Reviews />
           <div className="text-cream bg-brown -mb-px h-6 sm:h-8">
             <WaveDivider className="h-full" />
@@ -152,6 +154,7 @@ export default async function Home() {
         <Menu pizzas={pizzasForMenu} restaurant={restaurant} />
         <Services services={services} />
         <OrderCTA restaurant={restaurant} />
+        <Reservation />
         <Reviews reviews={reviews} />
         <div className="text-cream bg-brown -mb-px h-6 sm:h-8">
           <WaveDivider className="h-full" />
