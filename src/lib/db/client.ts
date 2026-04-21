@@ -73,9 +73,19 @@ export async function createReservation(
   payload: CreateReservationPayload
 ): Promise<Reservation> {
   if (!USE_SUPABASE) return memory.createReservation(payload);
+
+  /* 1. Upsert customer (find by email OR phone, else create) */
+  const customerId = await upsertCustomerSupabase({
+    name: payload.customer_name,
+    email: payload.customer_email,
+    phone: payload.customer_phone,
+  });
+
+  /* 2. Create reservation linked to the customer */
   const [row] = await supabaseFetch<Reservation[]>(`reservations`, {
     method: "POST",
     body: JSON.stringify({
+      customer_id: customerId,
       customer_name: payload.customer_name,
       customer_email: payload.customer_email,
       customer_phone: payload.customer_phone,
@@ -89,6 +99,65 @@ export async function createReservation(
     }),
   });
   return row;
+}
+
+/**
+ * Upsert customer by email OR phone. Returns the customer ID.
+ */
+async function upsertCustomerSupabase(data: {
+  name: string;
+  email?: string;
+  phone?: string;
+}): Promise<string | null> {
+  /* Try to find existing customer by email first, then phone */
+  if (data.email) {
+    const byEmail = await supabaseFetch<Customer[]>(
+      `customers?select=id&email=eq.${encodeURIComponent(data.email)}&limit=1`
+    );
+    if (byEmail.length > 0) {
+      /* Update last_visit and bump visits_count */
+      await supabaseFetch(`customers?id=eq.${byEmail[0].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          last_visit: new Date().toISOString(),
+        }),
+      });
+      return byEmail[0].id;
+    }
+  }
+
+  if (data.phone) {
+    const normalizedPhone = data.phone.replace(/\s/g, "");
+    const byPhone = await supabaseFetch<Customer[]>(
+      `customers?select=id&phone=eq.${encodeURIComponent(
+        normalizedPhone
+      )}&limit=1`
+    );
+    if (byPhone.length > 0) {
+      await supabaseFetch(`customers?id=eq.${byPhone[0].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          last_visit: new Date().toISOString(),
+        }),
+      });
+      return byPhone[0].id;
+    }
+  }
+
+  /* Create new customer */
+  try {
+    const [row] = await supabaseFetch<Customer[]>(`customers`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: data.name,
+        email: data.email || null,
+        phone: data.phone?.replace(/\s/g, "") || null,
+      }),
+    });
+    return row?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateReservation(
