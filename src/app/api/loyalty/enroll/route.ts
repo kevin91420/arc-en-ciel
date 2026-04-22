@@ -4,7 +4,8 @@
  * Returns: { card_number } pour redirect vers /fidelite/carte/[number]
  */
 import { NextRequest, NextResponse } from "next/server";
-import { enrollCustomer } from "@/lib/db/loyalty-client";
+import { enrollCustomer, getConfig } from "@/lib/db/loyalty-client";
+import { sendLoyaltyEnrollmentEmail } from "@/lib/email/send";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,26 @@ export async function POST(req: NextRequest) {
       customer_phone,
       customer_email,
     });
+
+    /* Only send welcome email for brand new cards (not existing ones) */
+    const isNewCard =
+      Date.now() - new Date(card.created_at).getTime() < 10_000;
+    if (isNewCard && customer_email) {
+      getConfig()
+        .then((config) =>
+          sendLoyaltyEnrollmentEmail({
+            customerEmail: customer_email,
+            customerName: customer_name,
+            cardNumber: card.card_number,
+            stampsRequired: config.stamps_required,
+            rewardLabel: config.reward_label,
+          })
+        )
+        .catch((err) => {
+          console.error("[email] Enrollment email failed:", err);
+        });
+    }
+
     return NextResponse.json(
       {
         success: true,

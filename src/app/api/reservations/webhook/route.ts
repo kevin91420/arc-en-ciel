@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createReservation } from "@/lib/db/client";
 import type { ReservationSource } from "@/lib/db/types";
+import { sendReservationEmails } from "@/lib/email/send";
 
 export const dynamic = "force-dynamic";
 
@@ -132,13 +133,25 @@ export async function POST(req: NextRequest) {
       special_occasion,
     });
 
+    /* Only send emails for NEW reservations (not deduped retries) */
+    const isDedup = Boolean(
+      external_id && reservation.external_id === external_id
+    );
+    /* For new entries, reservation.created_at is very recent (<5s).
+       If older, it's a dedup hit. */
+    const isRecent =
+      Date.now() - new Date(reservation.created_at).getTime() < 10_000;
+    if (isRecent && !isDedup) {
+      sendReservationEmails(reservation).catch((err) => {
+        console.error("[email] Webhook email send failed:", err);
+      });
+    }
+
     return NextResponse.json(
       {
         success: true,
         reservation,
-        deduped: Boolean(
-          external_id && reservation.external_id === external_id
-        ),
+        deduped: isDedup && !isRecent,
       },
       { status: 201 }
     );

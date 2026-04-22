@@ -104,7 +104,6 @@ const NAV: NavItem[] = [
   {
     href: "/admin/parametres",
     label: "Paramètres",
-    soon: true,
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
         <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />

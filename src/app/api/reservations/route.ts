@@ -7,6 +7,7 @@ import type {
   CreateReservationPayload,
   ReservationStatus,
 } from "@/lib/db/types";
+import { sendReservationEmails } from "@/lib/email/send";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +138,13 @@ export async function POST(req: NextRequest) {
     };
 
     const reservation = await createReservation(payload);
+
+    /* Fire-and-forget: send confirmation + admin alert emails.
+       We don't await so the API response isn't delayed. */
+    sendReservationEmails(reservation).catch((err) => {
+      console.error("[email] Failed to send reservation emails:", err);
+    });
+
     return NextResponse.json(reservation, { status: 201 });
   } catch (err) {
     return NextResponse.json(

@@ -3,7 +3,8 @@
  * Body: { card_number: string, staff_member?: string }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { addStamp } from "@/lib/db/loyalty-client";
+import { addStamp, getCardByNumber, getConfig } from "@/lib/db/loyalty-client";
+import { sendRewardUnlockedEmail } from "@/lib/email/send";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,26 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await addStamp(card_number, staff_member);
+
+    /* If reward earned: send celebration email (fire-and-forget) */
+    if (result.rewardEarned) {
+      Promise.all([getCardByNumber(card_number), getConfig()])
+        .then(([fullCard, config]) => {
+          if (!fullCard || !fullCard.customer_email) return;
+          return sendRewardUnlockedEmail({
+            customerEmail: fullCard.customer_email,
+            customerName: fullCard.customer_name || "Client",
+            cardNumber: card_number,
+            rewardLabel: config.reward_label,
+            rewardDescription: config.reward_description,
+            totalVisits: fullCard.total_stamps_earned,
+          });
+        })
+        .catch((err) => {
+          console.error("[email] Reward email failed:", err);
+        });
+    }
+
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
