@@ -8,6 +8,7 @@ import {
   useReducedMotion,
 } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import ROICalculator from "./_components/ROICalculator";
 
 /* ─────────────────────────────────────────────────────────────
    Design tokens (inline) — kept as strings for Framer props
@@ -258,6 +259,7 @@ export default function ProPage() {
       <BeforeAfter />
       <Compare />
       <DemoProof />
+      <ROISection />
       <Pricing />
       <Faq />
       <Contact />
@@ -1497,6 +1499,29 @@ function DemoProof() {
   );
 }
 
+/* ─── ROI Section ─────────────────────────────────────────── */
+function ROISection() {
+  return (
+    <section
+      id="roi"
+      className="relative py-28 lg:py-40 bg-[color:var(--color-cream-dark)] overflow-hidden"
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse at 85% 15%, rgba(184,146,47,0.12), transparent 55%), radial-gradient(ellipse at 10% 90%, rgba(192,57,43,0.08), transparent 60%)",
+        }}
+      />
+      <div className="relative max-w-7xl mx-auto px-6 lg:px-10 mb-4">
+        <SectionLabel index="07" label="Combien ça coûte vraiment aujourd'hui" />
+      </div>
+      <ROICalculator />
+    </section>
+  );
+}
+
 /* ─── Pricing ─────────────────────────────────────────────── */
 function Pricing() {
   return (
@@ -1513,7 +1538,7 @@ function Pricing() {
         }}
       />
       <div className="relative max-w-4xl mx-auto px-6 lg:px-10">
-        <SectionLabel index="07" label="Le prix" dark />
+        <SectionLabel index="08" label="Le prix" dark />
         <motion.h2
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -1555,11 +1580,14 @@ function Pricing() {
                 </h3>
               </div>
               <div className="sm:text-right">
-                <div className="text-white-warm/50 text-sm">À partir de</div>
+                <div className="text-white-warm/50 text-sm">Formule complète</div>
                 <div className="font-[family-name:var(--font-display)] italic text-[color:var(--color-gold-light)] text-5xl lg:text-6xl leading-none mt-1">
-                  2&nbsp;490&nbsp;€
+                  4&nbsp;990&nbsp;€
                 </div>
                 <div className="text-white-warm/50 text-sm mt-1">one-shot · HT</div>
+                <div className="text-white-warm/40 text-xs mt-2 italic leading-snug max-w-[220px] sm:ml-auto">
+                  — ou 2&nbsp;490&nbsp;€ pour la formule Essential (sans POS ni cuisine)
+                </div>
               </div>
             </div>
 
@@ -1621,7 +1649,7 @@ function Faq() {
   return (
     <section id="faq" className="relative py-28 lg:py-40 bg-cream">
       <div className="max-w-5xl mx-auto px-6 lg:px-10">
-        <SectionLabel index="08" label="FAQ" />
+        <SectionLabel index="09" label="FAQ" />
         <motion.h2
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -1740,7 +1768,7 @@ function Contact() {
       />
       <div className="relative max-w-5xl mx-auto px-6 lg:px-10 grid lg:grid-cols-5 gap-14">
         <div className="lg:col-span-2">
-          <SectionLabel index="09" label="Contact" dark />
+          <SectionLabel index="10" label="Contact" dark />
           <h2 className="font-[family-name:var(--font-display)] text-4xl sm:text-5xl lg:text-[64px] leading-[1.05] mt-6">
             On en parle&nbsp;?
           </h2>

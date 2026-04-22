@@ -11,8 +11,16 @@ import LoyaltyEnrollment from "@/emails/LoyaltyEnrollment";
 import RewardUnlocked from "@/emails/RewardUnlocked";
 import LeadReceivedAdmin from "@/emails/LeadReceivedAdmin";
 import LeadAcknowledgment from "@/emails/LeadAcknowledgment";
+import ProspectIntro from "@/emails/ProspectIntro";
+import ProspectFollowup1 from "@/emails/ProspectFollowup1";
+import ProspectFollowup2 from "@/emails/ProspectFollowup2";
+import ProspectLastChance from "@/emails/ProspectLastChance";
 import type { Reservation } from "@/lib/db/types";
 import type { PackLead } from "@/lib/db/leads-types";
+import type {
+  Prospect,
+  ProspectTemplateId,
+} from "@/lib/db/prospects-types";
 
 /**
  * Envoyé dès qu'une réservation est créée (via site, webhook, ou admin).
@@ -148,6 +156,115 @@ export async function sendLeadEmails(lead: PackLead) {
   );
 
   return Promise.allSettled(tasks);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OUTBOUND PROSPECTION — Cold outreach sequence
+   ═══════════════════════════════════════════════════════════ */
+
+const PROSPECT_REPLY_TO = "kaubouin@gmail.com";
+
+type ProspectEmailPayload = {
+  subject: string;
+  html: string; // rendered HTML body for logging
+  result:
+    | { ok: true; id: string }
+    | { ok: false; error: string; skipped?: boolean };
+};
+
+/**
+ * Renvoie le sujet d'email correspondant à un template, personnalisé
+ * avec le nom du resto.
+ */
+export function prospectSubject(
+  templateId: ProspectTemplateId,
+  restaurantName: string
+): string {
+  switch (templateId) {
+    case "intro":
+      return `Une idée pour ${restaurantName}`;
+    case "follow_up_1":
+      return `${restaurantName} — un chiffre qui change tout`;
+    case "follow_up_2":
+      return `${restaurantName} — la démo tient en 30 secondes`;
+    case "last_chance":
+      return `Je vous retire de ma liste — ${restaurantName}`;
+  }
+}
+
+/**
+ * Construit l'élément React correspondant au template.
+ */
+function prospectReactElement(
+  templateId: ProspectTemplateId,
+  prospect: Prospect
+) {
+  const props = {
+    restaurantName: prospect.restaurant_name,
+    city: prospect.city || null,
+    contactName: null,
+  };
+  switch (templateId) {
+    case "intro":
+      return createElement(ProspectIntro, props);
+    case "follow_up_1":
+      return createElement(ProspectFollowup1, props);
+    case "follow_up_2":
+      return createElement(ProspectFollowup2, props);
+    case "last_chance":
+      return createElement(ProspectLastChance, props);
+  }
+}
+
+/**
+ * Envoie un email de prospection et retourne le résultat détaillé.
+ * L'appelant (route API) se charge de logger dans prospect_emails
+ * et de mettre à jour le statut du prospect.
+ */
+export async function sendProspectEmail(
+  prospect: Prospect,
+  templateId: ProspectTemplateId
+): Promise<ProspectEmailPayload> {
+  if (!prospect.email) {
+    return {
+      subject: "",
+      html: "",
+      result: { ok: false, error: "Prospect has no email" },
+    };
+  }
+
+  const subject = prospectSubject(templateId, prospect.restaurant_name);
+  const element = prospectReactElement(templateId, prospect);
+
+  const result = await sendEmail({
+    to: prospect.email,
+    subject,
+    react: element,
+    replyTo: PROSPECT_REPLY_TO,
+  });
+
+  // Body rendu pour logging (simpliste — on stocke juste le template_id + subject
+  // comme référence ; Resend renvoie un id et stocke l'HTML de son côté).
+  const html = `template:${templateId}`;
+
+  if (result.ok) {
+    return { subject, html, result: { ok: true, id: result.id } };
+  }
+  if ("skipped" in result && result.skipped) {
+    return {
+      subject,
+      html,
+      result: { ok: false, error: result.reason, skipped: true },
+    };
+  }
+  return {
+    subject,
+    html,
+    result: {
+      ok: false,
+      error: "error" in result ? result.error : "Unknown send error",
+    },
+  };
 }
 
 function formatDate(iso: string): string {
