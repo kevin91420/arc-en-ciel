@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { formatCents } from "../_lib/format";
 
 /* ═══════════════════════════════════════════════════════════
    /admin/parametres — Centre de contrôle du système
@@ -28,6 +29,9 @@ type SystemStatus = {
     total_loyalty_cards: number;
     total_stamps: number;
     total_rewards_claimed: number;
+    total_orders_today?: number;
+    revenue_today_cents?: number;
+    active_orders?: number;
   };
   restaurant: {
     name: string;
@@ -148,6 +152,28 @@ export default function ParametresPage() {
             label="Récompenses"
             value={status.stats.total_rewards_claimed}
             icon="🎁"
+          />
+        </div>
+
+        {/* POS / Service du jour */}
+        <h2 className="text-xs uppercase tracking-widest text-brown-light/60 font-bold mb-3 mt-6 flex items-center gap-2">
+          <span>🍽</span> Service du jour
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard
+            label="Commandes aujourd'hui"
+            value={status.stats.total_orders_today ?? 0}
+            icon="📋"
+          />
+          <StatCard
+            label="CA du jour"
+            value={formatCents(status.stats.revenue_today_cents ?? 0)}
+            icon="💶"
+          />
+          <StatCard
+            label="Commandes actives"
+            value={status.stats.active_orders ?? 0}
+            icon="🔥"
           />
         </div>
       </motion.section>
@@ -363,7 +389,7 @@ function StatCard({
   icon,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   icon: string;
 }) {
   return (

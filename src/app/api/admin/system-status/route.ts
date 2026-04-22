@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getEmailConfig } from "@/lib/email/client";
 import { listReservations, listCustomers } from "@/lib/db/client";
 import { listAllCards } from "@/lib/db/loyalty-client";
+import { getPosOverviewStats } from "@/lib/db/pos-client";
 
 export const dynamic = "force-dynamic";
 
@@ -22,18 +23,29 @@ export async function GET() {
   let loyaltyCardsCount = 0;
   let totalStamps = 0;
   let rewardsClaimed = 0;
+  let totalOrdersToday = 0;
+  let revenueTodayCents = 0;
+  let activeOrders = 0;
 
   try {
-    const [reservations, customers, cards] = await Promise.all([
+    const [reservations, customers, cards, pos] = await Promise.all([
       listReservations().catch(() => []),
       listCustomers().catch(() => []),
       listAllCards().catch(() => []),
+      getPosOverviewStats().catch(() => ({
+        total_orders_today: 0,
+        revenue_today_cents: 0,
+        active_orders: 0,
+      })),
     ]);
     reservationsCount = reservations.length;
     customersCount = customers.length;
     loyaltyCardsCount = cards.length;
     totalStamps = cards.reduce((s, c) => s + c.total_stamps_earned, 0);
     rewardsClaimed = cards.reduce((s, c) => s + c.rewards_claimed, 0);
+    totalOrdersToday = pos.total_orders_today;
+    revenueTodayCents = pos.revenue_today_cents;
+    activeOrders = pos.active_orders;
   } catch {
     /* Silent fallback to zeros */
   }
@@ -69,6 +81,9 @@ export async function GET() {
       total_loyalty_cards: loyaltyCardsCount,
       total_stamps: totalStamps,
       total_rewards_claimed: rewardsClaimed,
+      total_orders_today: totalOrdersToday,
+      revenue_today_cents: revenueTodayCents,
+      active_orders: activeOrders,
     },
     restaurant: {
       name: "L'Arc en Ciel",
