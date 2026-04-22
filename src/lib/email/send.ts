@@ -9,7 +9,10 @@ import ReservationConfirmation from "@/emails/ReservationConfirmation";
 import AdminReservationAlert from "@/emails/AdminReservationAlert";
 import LoyaltyEnrollment from "@/emails/LoyaltyEnrollment";
 import RewardUnlocked from "@/emails/RewardUnlocked";
+import LeadReceivedAdmin from "@/emails/LeadReceivedAdmin";
+import LeadAcknowledgment from "@/emails/LeadAcknowledgment";
 import type { Reservation } from "@/lib/db/types";
+import type { PackLead } from "@/lib/db/leads-types";
 
 /**
  * Envoyé dès qu'une réservation est créée (via site, webhook, ou admin).
@@ -106,6 +109,45 @@ export async function sendRewardUnlockedEmail(params: {
       totalVisits: params.totalVisits,
     }),
   });
+}
+
+/**
+ * Envoyé dès qu'un lead est créé via le landing /pro.
+ * 2 emails : alerte admin (Kevin) + accusé de réception au prospect.
+ * Fire-and-forget via Promise.allSettled.
+ */
+export async function sendLeadEmails(lead: PackLead) {
+  const tasks: Promise<unknown>[] = [];
+
+  /* Admin alert — always fires */
+  tasks.push(
+    sendEmail({
+      to: getAdminEmail(),
+      subject: `🎯 Nouveau lead : ${lead.restaurant_name}`,
+      react: createElement(LeadReceivedAdmin, {
+        restaurantName: lead.restaurant_name,
+        contactName: lead.contact_name,
+        email: lead.email,
+        phone: lead.phone,
+        interest: lead.interest,
+      }),
+      replyTo: lead.email,
+    })
+  );
+
+  /* Prospect acknowledgment */
+  tasks.push(
+    sendEmail({
+      to: lead.email,
+      subject: "Merci pour votre intérêt — GOURMET PACK",
+      react: createElement(LeadAcknowledgment, {
+        contactName: lead.contact_name,
+        restaurantName: lead.restaurant_name,
+      }),
+    })
+  );
+
+  return Promise.allSettled(tasks);
 }
 
 function formatDate(iso: string): string {

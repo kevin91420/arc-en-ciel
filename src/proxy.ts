@@ -47,6 +47,10 @@ function isProtectedApi(pathname: string, method: string): boolean {
   if (pathname === "/api/loyalty/enroll" && method === "POST") return false;
   if (pathname.startsWith("/api/loyalty/card/") && method === "GET") return false;
 
+  // Leads public endpoint: POST /api/leads is the landing /pro form submission.
+  // (GET /api/leads does not exist — admin reads via /api/admin/leads.)
+  if (pathname === "/api/leads" && method === "POST") return false;
+
   // Loyalty admin routes: adding stamps, listing cards, config
   if (pathname === "/api/loyalty/stamp") return true;
 

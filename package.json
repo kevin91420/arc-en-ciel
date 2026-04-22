@@ -12,6 +12,7 @@
     "@react-email/components": "^1.0.12",
     "@sanity/image-url": "^2.1.1",
     "@sanity/vision": "^5.19.0",
+    "@supabase/supabase-js": "^2.104.0",
     "cheerio": "^1.2.0",
     "framer-motion": "^12.38.0",
     "js-confetti": "^0.13.1",

@@ -12,8 +12,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { WaiterCall } from "@/lib/db/types";
 import { minutesAgo, relativeFr } from "../_lib/format";
+import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 
-const LIVE_REFRESH_MS = 5_000;
+/* Polling fallback: 5s if Realtime disabled, 30s if Realtime active */
+const LIVE_REFRESH_MS_FALLBACK = 5_000;
+const LIVE_REFRESH_MS_WITH_REALTIME = 30_000;
 const URGENT_MIN = 3;
 
 type Tab = "live" | "history";
@@ -69,12 +72,25 @@ export default function DemandesPage() {
     }
   }, []);
 
-  /* polling for live tab only — history is static when viewing */
+  /* Realtime subscription: instant refresh on any change to waiter_calls */
+  const { connected: realtimeConnected } = useRealtimeTable(
+    "waiter_calls",
+    useCallback(() => {
+      if (tab === "live") loadLive();
+      else loadHistory();
+    }, [tab, loadLive, loadHistory])
+  );
+
+  /* Polling fallback (longer interval when Realtime is active) */
   useEffect(() => {
     setLoading(true);
+    const interval = realtimeConnected
+      ? LIVE_REFRESH_MS_WITH_REALTIME
+      : LIVE_REFRESH_MS_FALLBACK;
+
     if (tab === "live") {
       loadLive();
-      timer.current = setInterval(loadLive, LIVE_REFRESH_MS);
+      timer.current = setInterval(loadLive, interval);
     } else {
       loadHistory();
     }
@@ -84,7 +100,7 @@ export default function DemandesPage() {
         timer.current = null;
       }
     };
-  }, [tab, loadLive, loadHistory]);
+  }, [tab, loadLive, loadHistory, realtimeConnected]);
 
   async function updateStatus(
     id: string,
@@ -122,13 +138,23 @@ export default function DemandesPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-gold font-semibold">
             Service en salle
           </p>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl md:text-4xl text-brown">
-            Demandes des tables
-          </h1>
+          <div className="flex items-center gap-3 mt-1">
+            <h1 className="font-[family-name:var(--font-display)] text-3xl md:text-4xl text-brown">
+              Demandes des tables
+            </h1>
+            {realtimeConnected && (
+              <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border border-green-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </span>
+            )}
+          </div>
           {tab === "live" && (
             <p className="mt-1 text-xs text-brown-light flex items-center gap-2">
               <span className="inline-flex h-2 w-2 rounded-full bg-red animate-pulse" />
-              Rafraîchissement automatique toutes les 5 s
+              {realtimeConnected
+                ? "WebSocket actif — mises à jour instantanées"
+                : "Rafraîchissement automatique toutes les 5 s"}
             </p>
           )}
         </div>

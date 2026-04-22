@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Reservation, ReservationStatus } from "@/lib/db/types";
 import { formatFrenchDate, todayISO } from "../_lib/format";
+import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 
 const STATUS_OPTIONS: { value: ReservationStatus | "all"; label: string }[] = [
   { value: "all", label: "Tous" },
@@ -53,6 +54,14 @@ export default function ReservationsPage() {
     load();
   }, [load]);
 
+  /* Realtime: refresh the list instantly when a reservation changes */
+  const { connected: realtimeConnected } = useRealtimeTable(
+    "reservations",
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
   async function updateReservation(
     id: string,
     patch: Partial<Reservation>
@@ -95,9 +104,17 @@ export default function ReservationsPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-gold font-semibold">
             Planning
           </p>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl md:text-4xl text-brown">
-            Réservations
-          </h1>
+          <div className="flex items-center gap-3 mt-1">
+            <h1 className="font-[family-name:var(--font-display)] text-3xl md:text-4xl text-brown">
+              Réservations
+            </h1>
+            {realtimeConnected && (
+              <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border border-green-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-brown-light capitalize">
             {formatFrenchDate(date)}
           </p>

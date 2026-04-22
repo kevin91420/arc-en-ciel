@@ -62,6 +62,16 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/leads",
+    label: "Leads",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/demandes",
     label: "Demandes table",
     icon: (
