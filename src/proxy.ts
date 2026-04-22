@@ -43,6 +43,13 @@ function isProtectedApi(pathname: string, method: string): boolean {
   // Webhook endpoint is PUBLIC — auth is handled by token header inside the route.
   if (pathname === "/api/reservations/webhook") return false;
 
+  // Loyalty public routes: enrollment + public card view
+  if (pathname === "/api/loyalty/enroll" && method === "POST") return false;
+  if (pathname.startsWith("/api/loyalty/card/") && method === "GET") return false;
+
+  // Loyalty admin routes: adding stamps, listing cards, config
+  if (pathname === "/api/loyalty/stamp") return true;
+
   // GET /api/reservations          — list (admin only)
   // PATCH /api/reservations/[id]   — admin only
   // DELETE /api/reservations/[id]  — admin only

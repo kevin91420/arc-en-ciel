@@ -72,6 +72,15 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/fidelite",
+    label: "Fidélité",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path d="M12 2l2.4 6.9h7.3l-5.9 4.3 2.3 7L12 16l-6.1 4.2 2.3-7-5.9-4.3h7.3z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/integrations",
     label: "Intégrations",
     icon: (
