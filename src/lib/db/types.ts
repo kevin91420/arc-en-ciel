@@ -50,6 +50,7 @@ export interface Reservation {
   table_number?: number | null;
   status: ReservationStatus;
   source: ReservationSource;
+  external_id?: string | null; // id from external platform (e.g. thefork:abc123)
   notes?: string | null;
   special_occasion?: string | null;
   created_at: string;
@@ -107,6 +108,7 @@ export interface CreateReservationPayload {
   notes?: string;
   special_occasion?: string;
   source?: ReservationSource;
+  external_id?: string;
 }
 
 export interface CreateWaiterCallPayload {

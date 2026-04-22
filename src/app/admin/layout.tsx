@@ -72,6 +72,16 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/integrations",
+    label: "Intégrations",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.5 1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.5-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/menu",
     label: "Menu",
     soon: true,

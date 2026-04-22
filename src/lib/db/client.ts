@@ -74,6 +74,16 @@ export async function createReservation(
 ): Promise<Reservation> {
   if (!USE_SUPABASE) return memory.createReservation(payload);
 
+  /* 0. Dedup check: if source + external_id already exists, return existing */
+  if (payload.external_id && payload.source) {
+    const existing = await supabaseFetch<Reservation[]>(
+      `reservations?select=*&source=eq.${payload.source}&external_id=eq.${encodeURIComponent(
+        payload.external_id
+      )}&limit=1`
+    );
+    if (existing.length > 0) return existing[0];
+  }
+
   /* 1. Upsert customer (find by email OR phone, else create) */
   const customerId = await upsertCustomerSupabase({
     name: payload.customer_name,
@@ -94,6 +104,7 @@ export async function createReservation(
       guests: payload.guests,
       status: "pending",
       source: payload.source || "website",
+      external_id: payload.external_id || null,
       notes: payload.notes,
       special_occasion: payload.special_occasion,
     }),

@@ -40,6 +40,9 @@ function getExpectedPassword(): string {
  * Public endpoints (POST /api/reservations, POST /api/waiter) are NOT listed.
  */
 function isProtectedApi(pathname: string, method: string): boolean {
+  // Webhook endpoint is PUBLIC — auth is handled by token header inside the route.
+  if (pathname === "/api/reservations/webhook") return false;
+
   // GET /api/reservations          — list (admin only)
   // PATCH /api/reservations/[id]   — admin only
   // DELETE /api/reservations/[id]  — admin only
@@ -54,6 +57,10 @@ function isProtectedApi(pathname: string, method: string): boolean {
   // Stats + customers = admin only.
   if (pathname.startsWith("/api/stats")) return true;
   if (pathname.startsWith("/api/customers")) return true;
+
+  // Admin-only API routes (except /api/admin/auth which is exempted above).
+  // Includes /api/admin/webhook-token — must NOT be publicly readable.
+  if (pathname.startsWith("/api/admin/")) return true;
 
   return false;
 }
