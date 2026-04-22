@@ -282,3 +282,40 @@ body {
     size: A4;
   }
 }
+
+/* ══════════════════════════════════════════════
+   KITCHEN TICKET — 80mm thermal print
+
+   Uses a named page (`thermal`) so the 80mm @page rule ONLY applies to pages
+   that opt in via `.ticket-printable` (kitchen ticket print route). Other
+   printable pages (e.g. /carte) keep their A4 default. Named-page selection
+   is declared on the element via `page: thermal;`.
+   ══════════════════════════════════════════════ */
+.ticket-printable {
+  page: thermal;
+}
+
+@page thermal {
+  size: 80mm auto;
+  margin: 0;
+}
+
+@media print {
+  .ticket-printable {
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 2mm 3mm !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  body:has(.ticket-printable) {
+    margin: 0 !important;
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

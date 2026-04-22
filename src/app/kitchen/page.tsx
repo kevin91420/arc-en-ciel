@@ -671,6 +671,36 @@ function TicketCard({
         <span className="text-cream/30">
           #{ticket.order_id.slice(0, 6).toUpperCase()}
         </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(
+              `/kitchen/ticket/${ticket.order_id}`,
+              `print-${ticket.order_id}`,
+              "width=400,height=800"
+            );
+          }}
+          className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded bg-cream/5 hover:bg-gold/20 hover:text-gold-light text-cream/70 text-[10px] uppercase tracking-[0.14em] font-bold transition-colors"
+          title="Imprimer le ticket cuisine"
+          aria-label="Imprimer le ticket cuisine"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="w-3 h-3"
+            fill="none"
+            aria-hidden
+          >
+            <path
+              d="M6 9V4h12v5M6 18H4v-7h16v7h-2M8 14h8v6H8z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Imprimer
+        </button>
       </div>
 
       {/* Divider */}

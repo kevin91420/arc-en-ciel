@@ -52,6 +52,20 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/service/ce-soir",
+    label: "Ce soir",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path
+          d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/reservations",
     label: "Réservations",
     icon: (
@@ -210,7 +224,9 @@ export default function AdminLayout({
             const active =
               item.href === "/admin"
                 ? pathname === "/admin"
-                : pathname.startsWith(item.href);
+                : item.href === "/admin/service"
+                  ? pathname === "/admin/service"
+                  : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
@@ -330,7 +346,9 @@ export default function AdminLayout({
               const active =
                 item.href === "/admin"
                   ? pathname === "/admin"
-                  : pathname.startsWith(item.href);
+                  : item.href === "/admin/service"
+                    ? pathname === "/admin/service"
+                    : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
