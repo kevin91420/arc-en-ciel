@@ -7,7 +7,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { Reservation, ReservationStatus } from "@/lib/db/types";
+import type {
+  Reservation,
+  ReservationStatus,
+  ReservationSource,
+} from "@/lib/db/types";
 import { formatFrenchDate, todayISO } from "../_lib/format";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 
@@ -19,6 +23,71 @@ const STATUS_OPTIONS: { value: ReservationStatus | "all"; label: string }[] = [
   { value: "completed", label: "Terminées" },
   { value: "no_show", label: "No-show" },
 ];
+
+/* Source visual badges — permet de voir d'un coup d'œil d'où vient la résa */
+const SOURCE_CONFIG: Record<
+  ReservationSource,
+  { label: string; bg: string; text: string; icon: string }
+> = {
+  website: {
+    label: "Site web",
+    bg: "bg-gold/15 border-gold/40",
+    text: "text-gold-dark",
+    icon: "🌐",
+  },
+  thefork: {
+    label: "TheFork",
+    bg: "bg-[#5bb4a1]/15 border-[#5bb4a1]/50",
+    text: "text-[#2d5a4e]",
+    icon: "🍴",
+  },
+  google: {
+    label: "Google",
+    bg: "bg-[#4285F4]/15 border-[#4285F4]/40",
+    text: "text-[#1a5bb8]",
+    icon: "🔎",
+  },
+  phone: {
+    label: "Téléphone",
+    bg: "bg-brown/10 border-brown/30",
+    text: "text-brown",
+    icon: "📞",
+  },
+  walk_in: {
+    label: "Passage",
+    bg: "bg-terracotta/15 border-terracotta/40",
+    text: "text-terracotta-deep",
+    icon: "🚶",
+  },
+  other: {
+    label: "Autre",
+    bg: "bg-[#00CCBC]/15 border-[#00CCBC]/40",
+    text: "text-[#006b62]",
+    icon: "📦",
+  },
+};
+
+export function SourceBadge({
+  source,
+  size = "md",
+}: {
+  source: ReservationSource;
+  size?: "sm" | "md";
+}) {
+  const cfg = SOURCE_CONFIG[source] || SOURCE_CONFIG.other;
+  const sizes =
+    size === "sm"
+      ? "text-[10px] px-2 py-0.5 gap-1"
+      : "text-xs px-2.5 py-1 gap-1.5";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border ${sizes} font-bold uppercase tracking-wider ${cfg.bg} ${cfg.text}`}
+    >
+      <span className="leading-none">{cfg.icon}</span>
+      <span>{cfg.label}</span>
+    </span>
+  );
+}
 
 export default function ReservationsPage() {
   const [date, setDate] = useState<string>(todayISO());
@@ -202,7 +271,10 @@ export default function ReservationsPage() {
                       {r.time}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-brown">{r.customer_name}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-brown">{r.customer_name}</span>
+                        <SourceBadge source={r.source} size="sm" />
+                      </div>
                       {r.special_occasion && (
                         <div className="text-[10px] tracking-wider uppercase text-gold font-semibold mt-0.5">
                           {r.special_occasion}
@@ -255,9 +327,12 @@ export default function ReservationsPage() {
                       <StatusPill status={r.status} />
                     </span>
                   </div>
-                  <p className="text-xs text-brown-light mt-1">
-                    {r.guests} couverts · {r.customer_phone}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <SourceBadge source={r.source} size="sm" />
+                    <span className="text-xs text-brown-light">
+                      {r.guests} couverts · {r.customer_phone}
+                    </span>
+                  </div>
                   {r.notes && (
                     <p className="text-xs text-brown-light mt-1 italic truncate">
                       {r.notes}
@@ -479,7 +554,9 @@ function Drawer({
             </InfoCell>
             <InfoCell label="Heure">{reservation.time}</InfoCell>
             <InfoCell label="Couverts">{reservation.guests}</InfoCell>
-            <InfoCell label="Source">{reservation.source}</InfoCell>
+            <InfoCell label="Source">
+              <SourceBadge source={reservation.source} />
+            </InfoCell>
             <InfoCell label="Téléphone">
               <a
                 href={`tel:${reservation.customer_phone}`}
