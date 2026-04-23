@@ -11,7 +11,14 @@
    - Fiche restaurant (refetch après save)
    ═══════════════════════════════════════════════════════════ */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCents } from "../_lib/format";
 import type {
@@ -19,6 +26,11 @@ import type {
   RestaurantSettings,
 } from "@/lib/db/settings-types";
 import { applyThemeToDocument } from "@/lib/settings-theme";
+import { ALL_PLATFORMS } from "@/data/platforms";
+
+/* One-shot pack price (cf. /pro page) — used by the savings banner */
+const PACK_ONESHOT_EUR = 4990;
+const REPLACED_STORAGE_KEY = "gourmet-replaced";
 
 /* ─────────────────────────  Types  ───────────────────────── */
 
@@ -244,6 +256,9 @@ export default function ParametresPage() {
           statistiques en un coup d&apos;œil.
         </p>
       </motion.div>
+
+      {/* ══════════ Savings banner (visible only if replaced platforms exist) ══════════ */}
+      <SavingsBanner />
 
       {/* ══════════ Personnalisation (NEW) ══════════ */}
       <motion.section
@@ -1597,5 +1612,124 @@ function InfoRow({ label, value }: { label: string; value: string }) {
         {value || "—"}
       </span>
     </div>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════
+   Savings banner — reads localStorage["gourmet-replaced"] and
+   shows headline savings if at least one platform is flagged.
+   ═════════════════════════════════════════════════════════════ */
+
+function readReplacedSnapshot(): string {
+  try {
+    const raw = window.localStorage.getItem(REPLACED_STORAGE_KEY);
+    if (!raw) return "[]";
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return "[]";
+    return JSON.stringify(parsed.filter((x) => typeof x === "string"));
+  } catch {
+    return "[]";
+  }
+}
+
+function subscribeReplaced(onStoreChange: () => void) {
+  const handler = (e: StorageEvent) => {
+    if (e.key === REPLACED_STORAGE_KEY) onStoreChange();
+  };
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
+}
+
+function SavingsBanner() {
+  const snap = useSyncExternalStore<string | null>(
+    subscribeReplaced,
+    readReplacedSnapshot,
+    () => null
+  );
+  const ids = useMemo<string[] | null>(() => {
+    if (snap === null) return null;
+    try {
+      const v = JSON.parse(snap);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  }, [snap]);
+
+  const { monthly, annual, paybackMonths } = useMemo(() => {
+    if (!ids || ids.length === 0)
+      return { monthly: 0, annual: 0, paybackMonths: Infinity };
+    const byId = new Map(ALL_PLATFORMS.map((p) => [p.id, p]));
+    const monthly = ids.reduce((sum, id) => {
+      const p = byId.get(id);
+      return sum + (p?.monthly_cost_eur ?? 0);
+    }, 0);
+    return {
+      monthly,
+      annual: monthly * 12,
+      paybackMonths: monthly > 0 ? PACK_ONESHOT_EUR / monthly : Infinity,
+    };
+  }, [ids]);
+
+  /* SSR / empty — don't render */
+  if (!ids || ids.length === 0 || monthly <= 0) return null;
+
+  const fmt = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+  const fmtMonths = (n: number) =>
+    n.toLocaleString("fr-FR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+
+  return (
+    <motion.aside
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="relative mb-10 rounded-2xl overflow-hidden bg-brown text-cream shadow-lg"
+    >
+      <div
+        aria-hidden
+        className="absolute -top-16 -right-10 w-60 h-60 rounded-full blur-3xl opacity-30"
+        style={{ backgroundColor: "#B8922F" }}
+      />
+      <div className="relative px-5 sm:px-7 py-5 sm:py-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-gold-light/90 font-bold mb-1.5">
+            Retour sur investissement
+          </p>
+          <p className="text-cream text-base sm:text-lg leading-snug">
+            Vous économisez actuellement{" "}
+            <span className="font-[family-name:var(--font-display)] italic text-gold-light text-2xl sm:text-3xl font-bold align-baseline">
+              {fmt(monthly)}
+            </span>
+            <span className="text-cream/80 text-sm"> /mois</span>
+          </p>
+          <p className="text-cream/70 text-xs sm:text-sm mt-1.5">
+            Amorti en{" "}
+            <span className="text-gold-light font-bold">
+              {fmtMonths(paybackMonths)} mois
+            </span>{" "}
+            · Total annuel{" "}
+            <span className="text-gold-light font-bold">{fmt(annual)}</span>
+          </p>
+        </div>
+        <Link
+          href="/admin/economies"
+          className="inline-flex items-center gap-2 flex-shrink-0 bg-gold hover:bg-gold/90 text-brown font-bold px-5 py-2.5 rounded-full text-sm transition active:scale-95"
+        >
+          Voir le détail
+          <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" aria-hidden>
+            <path
+              d="M5 12h14m0 0l-6-6m6 6l-6 6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </Link>
+      </div>
+    </motion.aside>
   );
 }
