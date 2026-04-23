@@ -38,7 +38,14 @@ function deriveTileState(order: OrderWithItems | undefined): TileState {
 
 const TILE_STYLES: Record<
   TileState,
-  { bg: string; border: string; ink: string; accent: string; label: string }
+  {
+    bg: string;
+    border: string;
+    ink: string;
+    accent: string;
+    label: string;
+    pulse?: boolean;
+  }
 > = {
   libre: {
     bg: "bg-white-warm",
@@ -62,11 +69,12 @@ const TILE_STYLES: Record<
     label: "En cuisine",
   },
   prete: {
-    bg: "bg-red/10",
-    border: "border-red/60",
+    bg: "bg-green-100",
+    border: "border-green-500",
     ink: "text-brown",
-    accent: "text-red",
-    label: "À SERVIR",
+    accent: "text-green-700",
+    label: "🍽 À SERVIR MAINTENANT",
+    pulse: true,
   },
   servie: {
     bg: "bg-brown/5",
@@ -283,9 +291,9 @@ function TableTile({
       {pulse && (
         <motion.span
           aria-hidden
-          className="absolute inset-0 rounded-2xl ring-2 ring-red/50 pointer-events-none"
-          animate={{ opacity: [0.25, 0.85, 0.25] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute inset-0 rounded-2xl ring-4 ring-green-500/60 pointer-events-none"
+          animate={{ opacity: [0.35, 1, 0.35], scale: [1, 1.02, 1] }}
+          transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
         />
       )}
 
@@ -303,7 +311,7 @@ function TableTile({
                 : state === "cuisine"
                   ? "bg-[#E67E22]/15 text-[#C56A19]"
                   : state === "prete"
-                    ? "bg-red/15 text-red"
+                    ? "bg-green-500 text-white"
                     : "bg-brown/10 text-brown-light",
           ].join(" ")}
         >
@@ -324,6 +332,24 @@ function TableTile({
               {order.guest_count} couvert{order.guest_count > 1 ? "s" : ""} ·{" "}
               {elapsed}
             </p>
+            {state === "prete" && (() => {
+              const ready = order.items.filter((i) => i.status === "ready").length;
+              const total = order.items.filter((i) => i.status !== "cancelled" && i.status !== "served").length;
+              return (
+                <p className="text-[11px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded inline-block">
+                  ✓ {ready}/{total} plat{total > 1 ? "s" : ""} prêt{ready > 1 ? "s" : ""}
+                </p>
+              );
+            })()}
+            {state === "cuisine" && (() => {
+              const cooking = order.items.filter((i) => i.status === "cooking").length;
+              const ready = order.items.filter((i) => i.status === "ready").length;
+              return (
+                <p className="text-[11px] font-medium text-[#C56A19]">
+                  🔥 {cooking} en prépa{ready > 0 ? ` · ✓ ${ready} prêt${ready > 1 ? "s" : ""}` : ""}
+                </p>
+              );
+            })()}
             <p className="text-sm text-brown font-semibold tabular-nums">
               {formatCents(order.total_cents)}
             </p>
