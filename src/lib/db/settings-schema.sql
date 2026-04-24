@@ -56,6 +56,20 @@ create table if not exists restaurant_settings (
   -- TVA rate (percentage 0-100)
   tax_rate numeric(4, 2) default 10.00,
 
+  -- Tables (JSON array of TableConfig — white-label floor plan)
+  tables jsonb default '[
+    {"number":1,"label":"T1","capacity":4,"zone":"Salle"},
+    {"number":2,"label":"T2","capacity":4,"zone":"Salle"},
+    {"number":3,"label":"T3","capacity":4,"zone":"Salle"},
+    {"number":4,"label":"T4","capacity":4,"zone":"Salle"},
+    {"number":5,"label":"T5","capacity":4,"zone":"Salle"},
+    {"number":6,"label":"T6","capacity":4,"zone":"Salle"},
+    {"number":7,"label":"T7","capacity":4,"zone":"Salle"},
+    {"number":8,"label":"T8","capacity":4,"zone":"Salle"},
+    {"number":9,"label":"T9","capacity":4,"zone":"Salle"},
+    {"number":10,"label":"T10","capacity":4,"zone":"Salle"}
+  ]'::jsonb,
+
   -- Legal
   legal_name text,
   siret text,

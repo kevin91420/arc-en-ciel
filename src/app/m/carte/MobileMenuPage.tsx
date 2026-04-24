@@ -2,9 +2,11 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback, use } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
 import { formatCents, parsePriceToCents } from "@/lib/format";
+import type { LoyaltyCard, LoyaltyConfig } from "@/lib/db/loyalty-types";
 
 /* ═══════════════════════════════════════════════════════════
    MOBILE QR MENU — App-like experience for table diners.
@@ -70,6 +72,25 @@ type SubmitState =
   | { kind: "success" }
   | { kind: "error"; message: string };
 
+type LoyaltyState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | {
+      kind: "enrolled";
+      card: LoyaltyCard;
+      config: LoyaltyConfig;
+    }
+  | { kind: "anonymous"; config: LoyaltyConfig | null }
+  | { kind: "disabled" };
+
+type EnrollState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "success"; cardNumber: string }
+  | { kind: "error"; message: string };
+
+const LOYALTY_CARD_KEY = "arc-loyalty-card";
+
 function cartKey(table: string | undefined): string | null {
   if (!table) return null;
   return `cart-table-${table}`;
@@ -112,6 +133,11 @@ export default function MobileMenuPage({
   const [cart, setCart] = useState<CartLine[] | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
   const [flashLineId, setFlashLineId] = useState<string | null>(null);
+
+  /* Loyalty — ⭐ Rejoindre / show balance. Fetched once + after enrolment. */
+  const [loyalty, setLoyalty] = useState<LoyaltyState>({ kind: "idle" });
+  const [loyaltyOpen, setLoyaltyOpen] = useState(false);
+  const [loyaltyPostOrder, setLoyaltyPostOrder] = useState(false);
 
   /* Effective table number — URL param wins, otherwise use the stored one */
   const tableNumber = tableFromUrl || storedTable;
@@ -185,6 +211,68 @@ export default function MobileMenuPage({
       /* localStorage full / private mode → silent. Cart still works in-memory. */
     }
   }, [cart, tableNumber]);
+
+  /* Bootstrap loyalty — fetch the public settings flag + any stored card. */
+  const refreshLoyalty = useCallback(async () => {
+    setLoyalty((prev) => (prev.kind === "idle" ? { kind: "loading" } : prev));
+    try {
+      const settingsRes = await fetch("/api/settings", { cache: "no-store" });
+      const settings = settingsRes.ok
+        ? ((await settingsRes.json()) as { feature_loyalty?: boolean })
+        : {};
+      if (settings.feature_loyalty === false) {
+        setLoyalty({ kind: "disabled" });
+        return;
+      }
+
+      const storedNumber =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(LOYALTY_CARD_KEY)
+          : null;
+
+      if (storedNumber) {
+        const cardRes = await fetch(
+          `/api/loyalty/card/${encodeURIComponent(storedNumber)}`,
+          { cache: "no-store" }
+        );
+        if (cardRes.ok) {
+          const data = (await cardRes.json()) as {
+            card: LoyaltyCard;
+            config: LoyaltyConfig;
+          };
+          setLoyalty({ kind: "enrolled", card: data.card, config: data.config });
+          return;
+        }
+        /* Stale card number — clear it silently and fall through to anonymous. */
+        try {
+          window.localStorage.removeItem(LOYALTY_CARD_KEY);
+        } catch {}
+      }
+
+      /* No card (yet) — fetch the public config so we can display the teaser. */
+      try {
+        const cfgRes = await fetch("/api/loyalty/config", {
+          cache: "no-store",
+        });
+        if (cfgRes.ok) {
+          const config = (await cfgRes.json()) as LoyaltyConfig;
+          if (config.active === false) {
+            setLoyalty({ kind: "disabled" });
+            return;
+          }
+          setLoyalty({ kind: "anonymous", config });
+          return;
+        }
+      } catch {}
+      setLoyalty({ kind: "anonymous", config: null });
+    } catch {
+      setLoyalty({ kind: "anonymous", config: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLoyalty();
+  }, [refreshLoyalty]);
 
   const saveTable = (value: string) => {
     const trimmed = value.trim();
@@ -334,6 +422,16 @@ export default function MobileMenuPage({
       }
       setSubmitState({ kind: "success" });
       clearCart();
+      /* If loyalty is active AND the diner isn't enrolled yet, surface the
+       * post-order invitation card after the success toast closes. */
+      if (loyalty.kind === "anonymous" && loyalty.config?.active) {
+        window.setTimeout(() => {
+          setCartOpen(false);
+          setLoyaltyPostOrder(true);
+        }, 2200);
+        window.setTimeout(() => setSubmitState({ kind: "idle" }), 2600);
+        return;
+      }
       /* Auto-dismiss the drawer after a beat. */
       window.setTimeout(() => {
         setCartOpen(false);
@@ -419,38 +517,44 @@ export default function MobileMenuPage({
                 </p>
               )}
             </div>
-            <button
-              onClick={() => setFiltersOpen(true)}
-              className={`relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-semibold border transition active:scale-95 ${
-                activeFilter !== "all"
-                  ? "bg-brown text-cream border-brown"
-                  : "bg-white-warm text-brown-light border-terracotta/20"
-              }`}
-              aria-label="Ouvrir les filtres"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
-                aria-hidden="true"
+            <div className="flex items-center gap-2">
+              <LoyaltyPill
+                loyalty={loyalty}
+                onClick={() => setLoyaltyOpen(true)}
+              />
+              <button
+                onClick={() => setFiltersOpen(true)}
+                className={`relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-semibold border transition active:scale-95 ${
+                  activeFilter !== "all"
+                    ? "bg-brown text-cream border-brown"
+                    : "bg-white-warm text-brown-light border-terracotta/20"
+                }`}
+                aria-label="Ouvrir les filtres"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 4h18M6 12h12M10 20h4"
-                />
-              </svg>
-              <span>
-                {activeFilter === "all"
-                  ? "Filtres"
-                  : `${activeFilterMeta?.icon ?? ""} ${activeFilterMeta?.label ?? "Filtres"}`}
-              </span>
-              {activeFilter !== "all" && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold border-2 border-cream" />
-              )}
-            </button>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 4h18M6 12h12M10 20h4"
+                  />
+                </svg>
+                <span>
+                  {activeFilter === "all"
+                    ? "Filtres"
+                    : `${activeFilterMeta?.icon ?? ""} ${activeFilterMeta?.label ?? "Filtres"}`}
+                </span>
+                {activeFilter !== "all" && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold border-2 border-cream" />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Search */}
@@ -729,6 +833,36 @@ export default function MobileMenuPage({
       <AnimatePresence>
         {tablePromptOpen && (
           <TablePrompt onSave={saveTable} onSkip={skipTable} />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ LOYALTY SHEET ═══ */}
+      <AnimatePresence>
+        {loyaltyOpen && (
+          <LoyaltySheet
+            loyalty={loyalty}
+            onClose={() => setLoyaltyOpen(false)}
+            onEnrolled={(cardNumber) => {
+              try {
+                window.localStorage.setItem(LOYALTY_CARD_KEY, cardNumber);
+              } catch {}
+              refreshLoyalty();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ POST-ORDER LOYALTY INVITE ═══ */}
+      <AnimatePresence>
+        {loyaltyPostOrder && (
+          <PostOrderLoyaltyInvite
+            config={loyalty.kind === "anonymous" ? loyalty.config : null}
+            onClose={() => setLoyaltyPostOrder(false)}
+            onAccept={() => {
+              setLoyaltyPostOrder(false);
+              setLoyaltyOpen(true);
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -1788,6 +1922,509 @@ function TablePrompt({
             Continuer sans numéro de table
           </button>
         </form>
+      </motion.div>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LOYALTY — Pill + Sheet (enrollment + card display)
+   ═══════════════════════════════════════════════════════════ */
+
+function LoyaltyPill({
+  loyalty,
+  onClick,
+}: {
+  loyalty: LoyaltyState;
+  onClick: () => void;
+}) {
+  if (loyalty.kind === "disabled" || loyalty.kind === "loading") return null;
+
+  if (loyalty.kind === "enrolled") {
+    const required = loyalty.config.stamps_required;
+    const current = loyalty.card.current_stamps;
+    const ready = current >= required;
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={[
+          "relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-bold border transition active:scale-95",
+          ready
+            ? "bg-gold text-brown border-gold shadow shadow-gold/30"
+            : "bg-brown text-gold-light border-brown",
+        ].join(" ")}
+        aria-label={`Ma carte fidélité · ${current} sur ${required} tampons`}
+      >
+        <span aria-hidden>{ready ? "🎁" : "⭐"}</span>
+        <span className="tabular-nums">
+          {current}
+          <span className="opacity-60">/</span>
+          {required}
+        </span>
+        {ready && (
+          <motion.span
+            aria-hidden
+            initial={{ scale: 0.9, opacity: 0.5 }}
+            animate={{ scale: 1.05, opacity: 1 }}
+            transition={{
+              duration: 1.1,
+              repeat: Infinity,
+              repeatType: "reverse",
+              ease: "easeInOut",
+            }}
+            className="absolute inset-0 rounded-full ring-2 ring-gold/50 pointer-events-none"
+          />
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-bold bg-white-warm text-brown border border-terracotta/30 hover:border-gold transition active:scale-95"
+      aria-label="Rejoindre le programme fidélité"
+    >
+      <span aria-hidden className="text-sm">
+        ⭐
+      </span>
+      <span>Fidélité</span>
+    </button>
+  );
+}
+
+function LoyaltySheet({
+  loyalty,
+  onClose,
+  onEnrolled,
+}: {
+  loyalty: LoyaltyState;
+  onClose: () => void;
+  onEnrolled: (cardNumber: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [enrollState, setEnrollState] = useState<EnrollState>({ kind: "idle" });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (enrollState.kind === "sending") return;
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedEmail = email.trim();
+    if (trimmedName.length < 2) {
+      setEnrollState({ kind: "error", message: "Merci d'indiquer votre nom" });
+      return;
+    }
+    if (!/^[+]?[\d\s().-]{6,20}$/.test(trimmedPhone)) {
+      setEnrollState({
+        kind: "error",
+        message: "Numéro de téléphone invalide",
+      });
+      return;
+    }
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setEnrollState({ kind: "error", message: "Email invalide" });
+      return;
+    }
+
+    setEnrollState({ kind: "sending" });
+    try {
+      const res = await fetch("/api/loyalty/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_name: trimmedName,
+          customer_phone: trimmedPhone,
+          customer_email: trimmedEmail || undefined,
+        }),
+      });
+      const data = (await res.json()) as {
+        card_number?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.card_number) {
+        setEnrollState({
+          kind: "error",
+          message: data.error || "Inscription impossible.",
+        });
+        return;
+      }
+      setEnrollState({ kind: "success", cardNumber: data.card_number });
+      onEnrolled(data.card_number);
+    } catch {
+      setEnrollState({
+        kind: "error",
+        message: "Connexion interrompue.",
+      });
+    }
+  }
+
+  const isEnrolled = loyalty.kind === "enrolled";
+  const config =
+    loyalty.kind === "enrolled"
+      ? loyalty.config
+      : loyalty.kind === "anonymous"
+        ? loyalty.config
+        : null;
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+        aria-hidden
+      />
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 30, stiffness: 280 }}
+        className="fixed inset-x-0 bottom-0 z-50 max-h-[92vh] overflow-y-auto rounded-t-3xl bg-cream shadow-2xl"
+        role="dialog"
+        aria-modal
+        aria-label="Programme fidélité"
+      >
+        <div className="sticky top-0 bg-cream/95 backdrop-blur pt-3 pb-2 px-5 flex justify-center">
+          <span className="w-10 h-1 rounded-full bg-brown/20" aria-hidden />
+        </div>
+
+        <div className="px-5 pb-10">
+          {/* ── Card visual (enrolled) ─────────────── */}
+          {isEnrolled && loyalty.kind === "enrolled" && (
+            <EnrolledCard
+              card={loyalty.card}
+              config={loyalty.config}
+            />
+          )}
+
+          {/* ── Enrollment form (anonymous) ──────────── */}
+          {!isEnrolled && enrollState.kind !== "success" && (
+            <>
+              <div className="pt-1 text-center">
+                <p className="text-[11px] uppercase tracking-widest text-gold font-bold mb-1">
+                  Programme fidélité
+                </p>
+                <h2 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown mb-1">
+                  Rejoignez le cercle
+                </h2>
+                {config?.welcome_message && (
+                  <p className="text-sm text-brown-light/90 leading-snug px-4">
+                    {config.welcome_message}
+                  </p>
+                )}
+              </div>
+
+              {config && (
+                <div className="mt-5 mx-auto max-w-md rounded-2xl bg-white-warm border border-terracotta/20 px-5 py-4 text-center">
+                  <p className="text-[10px] uppercase tracking-widest text-brown-light/70 font-bold">
+                    Récompense
+                  </p>
+                  <p className="font-[family-name:var(--font-display)] text-xl font-bold text-brown mt-0.5">
+                    {config.reward_label}
+                  </p>
+                  <p className="text-[13px] text-brown-light/90 mt-1">
+                    {config.reward_description}
+                  </p>
+                  <div className="mt-3 inline-flex items-center gap-1.5 text-xs text-brown-light font-semibold">
+                    <span
+                      className="inline-flex items-center gap-0.5 text-base"
+                      aria-hidden
+                    >
+                      {Array.from({ length: config.stamps_required }).map(
+                        (_, i) => (
+                          <span key={i}>⭐</span>
+                        )
+                      )}
+                    </span>
+                    <span>
+                      soit {config.stamps_required} passages = 1 récompense
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={submit} className="mt-6 space-y-3 max-w-md mx-auto">
+                <label className="block">
+                  <span className="sr-only">Nom</span>
+                  <input
+                    type="text"
+                    inputMode="text"
+                    autoComplete="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Votre nom complet"
+                    className="w-full px-4 py-3 bg-white-warm border border-terracotta/30 rounded-xl text-brown placeholder:text-brown-light/50 focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    maxLength={60}
+                  />
+                </label>
+                <label className="block">
+                  <span className="sr-only">Téléphone</span>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="06 12 34 56 78"
+                    className="w-full px-4 py-3 bg-white-warm border border-terracotta/30 rounded-xl text-brown placeholder:text-brown-light/50 focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </label>
+                <label className="block">
+                  <span className="sr-only">Email</span>
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="email (optionnel)"
+                    className="w-full px-4 py-3 bg-white-warm border border-terracotta/30 rounded-xl text-brown placeholder:text-brown-light/50 focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                </label>
+
+                {enrollState.kind === "error" && (
+                  <p className="text-xs text-red bg-red/10 px-3 py-2 rounded-lg text-center">
+                    {enrollState.message}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={enrollState.kind === "sending"}
+                  className="w-full inline-flex items-center justify-center gap-2 bg-brown hover:bg-brown-light text-cream font-bold py-3.5 rounded-full transition-all shadow-lg shadow-brown/20 active:scale-[0.98] disabled:opacity-60"
+                >
+                  {enrollState.kind === "sending" ? (
+                    <>Inscription en cours…</>
+                  ) : (
+                    <>
+                      <span aria-hidden>⭐</span>
+                      <span>Créer ma carte fidélité</span>
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-brown-light/70 text-center pt-1">
+                  En rejoignant, vous acceptez qu&apos;on mémorise votre nom et
+                  téléphone pour gérer vos tampons. Rien d&apos;autre.
+                </p>
+              </form>
+            </>
+          )}
+
+          {/* ── Success state (just enrolled) ──────────── */}
+          {enrollState.kind === "success" && (
+            <div className="text-center py-6">
+              <motion.div
+                initial={{ scale: 0.6, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", damping: 14, stiffness: 220 }}
+                className="w-16 h-16 mx-auto mb-4 rounded-full bg-gold flex items-center justify-center text-3xl"
+                aria-hidden
+              >
+                ⭐
+              </motion.div>
+              <h2 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown">
+                Bienvenue !
+              </h2>
+              <p className="text-sm text-brown-light mt-1">
+                Votre carte est prête. N° <strong>{enrollState.cardNumber}</strong>.
+              </p>
+              <Link
+                href={`/fidelite/carte/${enrollState.cardNumber}`}
+                className="inline-block mt-5 bg-gold hover:bg-gold/90 text-brown font-bold px-6 py-3 rounded-full text-sm transition active:scale-95"
+              >
+                Voir ma carte
+              </Link>
+              <button
+                type="button"
+                onClick={onClose}
+                className="block mx-auto mt-3 text-xs text-brown-light hover:text-brown"
+              >
+                Continuer la commande
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+function EnrolledCard({
+  card,
+  config,
+}: {
+  card: LoyaltyCard;
+  config: LoyaltyConfig;
+}) {
+  const ready = card.current_stamps >= config.stamps_required;
+  return (
+    <div className="pt-1">
+      <p className="text-[11px] uppercase tracking-widest text-gold font-bold text-center">
+        Ma carte fidélité
+      </p>
+      <h2 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown text-center">
+        N° {card.card_number}
+      </h2>
+
+      <div
+        className="mt-4 rounded-3xl p-6 shadow-xl relative overflow-hidden"
+        style={{
+          backgroundColor: config.brand_color || "#2C1810",
+          color: "#FDF8F0",
+        }}
+      >
+        <div
+          aria-hidden
+          className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-30 blur-3xl"
+          style={{ backgroundColor: config.accent_color || "#B8922F" }}
+        />
+        <div className="relative">
+          <p
+            className="text-[10px] uppercase tracking-widest font-bold opacity-80"
+            style={{ color: config.accent_color }}
+          >
+            Progression
+          </p>
+          <p className="font-[family-name:var(--font-display)] text-3xl font-bold mt-0.5 tabular-nums">
+            {card.current_stamps}
+            <span className="opacity-60 text-xl"> / {config.stamps_required}</span>
+          </p>
+
+          <div
+            className="mt-4 grid gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${Math.min(config.stamps_required, 10)}, minmax(0, 1fr))`,
+            }}
+          >
+            {Array.from({ length: config.stamps_required }).map((_, i) => {
+              const filled = i < card.current_stamps;
+              return (
+                <span
+                  key={i}
+                  className={[
+                    "aspect-square rounded-full flex items-center justify-center text-[11px] font-black border-2 transition",
+                    filled
+                      ? "bg-gold text-brown"
+                      : "border-cream/30 text-cream/40",
+                  ].join(" ")}
+                  style={filled ? {} : { borderColor: "rgba(253,248,240,0.3)" }}
+                  aria-hidden
+                >
+                  {filled ? "★" : ""}
+                </span>
+              );
+            })}
+          </div>
+
+          {ready ? (
+            <div
+              className="mt-5 px-4 py-3 rounded-xl font-bold text-sm"
+              style={{
+                backgroundColor: config.accent_color,
+                color: config.brand_color,
+              }}
+            >
+              🎁 {config.reward_label} — prête à réclamer à l&apos;équipe.
+            </div>
+          ) : (
+            <p className="mt-5 text-sm opacity-90 leading-snug">
+              Plus que{" "}
+              <span className="font-bold">
+                {config.stamps_required - card.current_stamps}
+              </span>{" "}
+              tampon{config.stamps_required - card.current_stamps > 1 ? "s" : ""}{" "}
+              avant {config.reward_label}.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5 flex gap-2">
+        <Link
+          href={`/fidelite/carte/${card.card_number}`}
+          className="flex-1 text-center bg-brown hover:bg-brown-light text-cream font-bold py-3 rounded-full text-sm transition active:scale-95"
+        >
+          Voir ma carte complète
+        </Link>
+      </div>
+      <p className="mt-3 text-[11px] text-brown-light/70 text-center">
+        Présentez ce numéro au serveur à chaque visite pour obtenir un tampon.
+      </p>
+    </div>
+  );
+}
+
+function PostOrderLoyaltyInvite({
+  config,
+  onClose,
+  onAccept,
+}: {
+  config: LoyaltyConfig | null;
+  onClose: () => void;
+  onAccept: () => void;
+}) {
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm"
+        aria-hidden
+      />
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: "spring", damping: 24, stiffness: 280 }}
+        className="fixed inset-x-4 bottom-6 z-50 rounded-3xl bg-white-warm p-6 shadow-2xl"
+        role="dialog"
+        aria-modal
+        aria-label="Invitation fidélité"
+      >
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-full bg-gold/20 flex items-center justify-center text-2xl flex-shrink-0">
+            ⭐
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-brown leading-tight">
+              Un tampon offert en bonus ?
+            </h3>
+            <p className="text-xs text-brown-light/90 mt-1 leading-snug">
+              Votre commande est envoyée en cuisine. Rejoignez notre programme
+              fidélité maintenant —{" "}
+              {config
+                ? `${config.stamps_required} passages = ${config.reward_label}.`
+                : "en 30 secondes, sans application."}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 text-xs font-semibold text-brown-light hover:text-brown py-3 rounded-full transition"
+          >
+            Non merci
+          </button>
+          <button
+            type="button"
+            onClick={onAccept}
+            className="flex-[2] inline-flex items-center justify-center gap-1.5 bg-brown hover:bg-brown-light text-cream text-sm font-bold py-3 rounded-full transition active:scale-95"
+          >
+            <span aria-hidden>⭐</span>
+            <span>Rejoindre</span>
+          </button>
+        </div>
       </motion.div>
     </>
   );

@@ -3,22 +3,33 @@
 /**
  * /staff/tables — Plan de salle.
  *
- * Grid 5×2 of tables 1..10 + a "Emporter / Livraison" button top-right.
- * Each tile reflects the live state of the underlying order (libre / open /
- * fired / ready) and taps through to /staff/table/[number]. Realtime is piped
- * from the `orders` and `order_items` tables — any chef or other server who
- * changes something refreshes every tablet at once.
+ * - Tables are driven by `restaurant_settings.tables` (white-label: any count,
+ *   any label, any zone). Falls back to 10 generic tables if the feed fails.
+ * - Three top-level tabs: Salle (default) · À emporter · Livraison.
+ *   Each tab surfaces only the relevant orders. Badge counters update live.
+ * - Zone sub-filter on the Salle tab when at least two zones exist, so a
+ *   manager can isolate "Terrasse" or "Étage" during rush hour.
+ * - Realtime is piped from `orders` and `order_items` — any chef or other
+ *   server refreshes every tablet at once.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import type { OrderWithItems } from "@/lib/db/pos-types";
+import type { TableConfig } from "@/lib/db/settings-types";
 
-const TABLE_COUNT = 10;
-const TABLE_NUMBERS = Array.from({ length: TABLE_COUNT }, (_, i) => i + 1);
+type TabId = "salle" | "emporter" | "livraison";
+
+const FALLBACK_TABLES: TableConfig[] = Array.from({ length: 10 }, (_, i) => ({
+  number: i + 1,
+  label: `T${i + 1}`,
+  capacity: 4,
+  zone: "Salle",
+}));
 
 type TileState =
   | "libre"
@@ -88,8 +99,36 @@ const TILE_STYLES: Record<
 export default function TablesPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
+  const [tables, setTables] = useState<TableConfig[]>(FALLBACK_TABLES);
+  const [tablesLoading, setTablesLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [creatingTakeaway, setCreatingTakeaway] = useState(false);
+  const [tab, setTab] = useState<TabId>("salle");
+  const [zoneFilter, setZoneFilter] = useState<string | "all">("all");
+  const [creatingTakeaway, setCreatingTakeaway] = useState<
+    null | "takeaway" | "delivery"
+  >(null);
+
+  /* Load the floor plan from public settings. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/settings", { cache: "no-store" });
+        if (!res.ok) throw new Error("settings fetch failed");
+        const data = (await res.json()) as { tables?: TableConfig[] };
+        if (!cancelled && Array.isArray(data.tables) && data.tables.length > 0) {
+          setTables(data.tables);
+        }
+      } catch {
+        /* keep fallback */
+      } finally {
+        if (!cancelled) setTablesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -121,139 +160,386 @@ export default function TablesPage() {
     const m = new Map<number, OrderWithItems>();
     for (const o of orders) {
       if (o.table_number == null) continue;
-      /* listActiveOrders is already sorted by created_at desc. */
       if (!m.has(o.table_number)) m.set(o.table_number, o);
     }
     return m;
   }, [orders]);
 
   const takeawayOrders = useMemo(
-    () => orders.filter((o) => o.table_number == null),
+    () =>
+      orders.filter(
+        (o) => o.table_number == null && o.source === "takeaway"
+      ),
+    [orders]
+  );
+  const deliveryOrders = useMemo(
+    () =>
+      orders.filter(
+        (o) => o.table_number == null && o.source === "delivery"
+      ),
     [orders]
   );
 
-  async function createTakeaway() {
+  /* Unique list of zones for the sub-filter (only rendered if ≥2). */
+  const zones = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tables) {
+      const z = t.zone?.trim();
+      if (z) s.add(z);
+    }
+    return [...s].sort();
+  }, [tables]);
+
+  /* Filtered tables for the Salle tab. */
+  const visibleTables = useMemo(() => {
+    if (zoneFilter === "all") return tables;
+    return tables.filter((t) => (t.zone?.trim() || "") === zoneFilter);
+  }, [tables, zoneFilter]);
+
+  /* Counts per tab — shown as badge chips. */
+  const busyCount = useMemo(
+    () => [...orderByTable.values()].filter(Boolean).length,
+    [orderByTable]
+  );
+
+  async function createOffsite(kind: "takeaway" | "delivery") {
     if (creatingTakeaway) return;
-    setCreatingTakeaway(true);
+    setCreatingTakeaway(kind);
     try {
       const res = await fetch("/api/staff/orders", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ source: "takeaway", guest_count: 1 }),
+        body: JSON.stringify({ source: kind, guest_count: 1 }),
       });
       if (!res.ok) return;
       const order = (await res.json()) as { id: string };
       router.push(`/staff/order/${order.id}`);
     } finally {
-      setCreatingTakeaway(false);
+      setCreatingTakeaway(null);
     }
   }
-
-  const busyCount = orderByTable.size;
 
   return (
     <div className="px-4 md:px-8 py-6">
       {/* ─── Header ─────────────────────────────────── */}
-      <div className="flex items-end justify-between gap-4 mb-6">
-        <div>
+      <div className="flex items-end justify-between gap-4 mb-6 flex-wrap">
+        <div className="min-w-0">
           <h1 className="font-[family-name:var(--font-display)] text-3xl md:text-4xl text-brown font-semibold leading-tight">
             Plan de salle
           </h1>
           <p className="mt-1 text-sm text-brown-light">
-            {loading ? (
+            {loading || tablesLoading ? (
               "Chargement du service…"
-            ) : busyCount === 0 ? (
+            ) : busyCount === 0 && takeawayOrders.length === 0 && deliveryOrders.length === 0 ? (
               <>Toutes les tables sont libres. Bon service&nbsp;!</>
             ) : (
               <>
-                {busyCount} / {TABLE_COUNT} tables occupées
+                {busyCount} / {tables.length} tables occupées
                 {takeawayOrders.length > 0 && (
                   <> · {takeawayOrders.length} à emporter</>
+                )}
+                {deliveryOrders.length > 0 && (
+                  <> · {deliveryOrders.length} en livraison</>
                 )}
               </>
             )}
           </p>
         </div>
 
-        <button
-          onClick={createTakeaway}
-          disabled={creatingTakeaway}
-          className="group relative inline-flex items-center gap-2.5 px-5 py-3 rounded-xl bg-brown text-cream text-sm font-semibold tracking-wide shadow-lg shadow-brown/20 hover:bg-brown-light disabled:opacity-60 transition"
+        <Link
+          href="/admin/parametres/tables"
+          className="text-xs text-brown-light hover:text-brown font-semibold inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-terracotta/30 hover:bg-cream transition"
         >
-          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
+          <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5">
+            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
             <path
-              d="M3 7h18l-1.5 12a2 2 0 0 1-2 1.75H6.5A2 2 0 0 1 4.5 19L3 7z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M8 7V5a4 4 0 0 1 8 0v2"
+              d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"
               stroke="currentColor"
               strokeWidth="1.8"
               strokeLinecap="round"
             />
           </svg>
-          <span>Emporter / Livraison</span>
+          Configurer
+        </Link>
+      </div>
+
+      {/* ─── Top-level tabs ─────────────────────────── */}
+      <div className="mb-5 flex items-center gap-1 p-1 rounded-2xl bg-white-warm border border-terracotta/20 w-full overflow-x-auto">
+        <TopTab
+          id="salle"
+          active={tab === "salle"}
+          onClick={() => setTab("salle")}
+          label="Salle"
+          icon="🍽"
+          badge={busyCount}
+        />
+        <TopTab
+          id="emporter"
+          active={tab === "emporter"}
+          onClick={() => setTab("emporter")}
+          label="À emporter"
+          icon="🥡"
+          badge={takeawayOrders.length}
+        />
+        <TopTab
+          id="livraison"
+          active={tab === "livraison"}
+          onClick={() => setTab("livraison")}
+          label="Livraison"
+          icon="🛵"
+          badge={deliveryOrders.length}
+        />
+      </div>
+
+      {/* ─── Tab content ─────────────────────────── */}
+      <AnimatePresence mode="wait">
+        {tab === "salle" && (
+          <motion.div
+            key="salle"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+          >
+            {zones.length >= 2 && (
+              <div className="mb-4 flex flex-wrap gap-1.5">
+                <ZoneChip
+                  active={zoneFilter === "all"}
+                  onClick={() => setZoneFilter("all")}
+                  label={`Toutes (${tables.length})`}
+                />
+                {zones.map((z) => {
+                  const count = tables.filter(
+                    (t) => (t.zone?.trim() || "") === z
+                  ).length;
+                  return (
+                    <ZoneChip
+                      key={z}
+                      active={zoneFilter === z}
+                      onClick={() => setZoneFilter(z)}
+                      label={`${z} (${count})`}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {visibleTables.map((t) => {
+                const order = orderByTable.get(t.number);
+                const state = deriveTileState(order);
+                return (
+                  <TableTile
+                    key={t.number}
+                    config={t}
+                    state={state}
+                    order={order}
+                    onClick={() => router.push(`/staff/table/${t.number}`)}
+                  />
+                );
+              })}
+              {visibleTables.length === 0 && (
+                <div className="col-span-full p-8 rounded-2xl bg-white-warm border border-terracotta/20 text-center text-sm text-brown-light">
+                  Aucune table dans cette zone.
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {tab === "emporter" && (
+          <motion.div
+            key="emporter"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+          >
+            <OffsiteTab
+              kind="takeaway"
+              orders={takeawayOrders}
+              onCreate={() => createOffsite("takeaway")}
+              creating={creatingTakeaway === "takeaway"}
+              onOpen={(id) => router.push(`/staff/order/${id}`)}
+            />
+          </motion.div>
+        )}
+
+        {tab === "livraison" && (
+          <motion.div
+            key="livraison"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+          >
+            <OffsiteTab
+              kind="delivery"
+              orders={deliveryOrders}
+              onCreate={() => createOffsite("delivery")}
+              creating={creatingTakeaway === "delivery"}
+              onOpen={(id) => router.push(`/staff/order/${id}`)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ═══════════════ UI components ═══════════════ */
+
+function TopTab({
+  active,
+  onClick,
+  label,
+  icon,
+  badge,
+}: {
+  id: TabId;
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon: string;
+  badge: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "flex-1 min-w-[128px] relative px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors inline-flex items-center justify-center gap-2",
+        active
+          ? "bg-brown text-cream shadow"
+          : "text-brown-light hover:text-brown",
+      ].join(" ")}
+    >
+      <span aria-hidden>{icon}</span>
+      <span>{label}</span>
+      {badge > 0 && (
+        <span
+          className={[
+            "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full tabular-nums",
+            active
+              ? "bg-gold text-brown"
+              : "bg-gold/20 text-brown",
+          ].join(" ")}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ZoneChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+        active
+          ? "bg-brown text-cream"
+          : "bg-white-warm text-brown-light border border-terracotta/30 hover:text-brown hover:border-terracotta/60",
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  );
+}
+
+function OffsiteTab({
+  kind,
+  orders,
+  onCreate,
+  creating,
+  onOpen,
+}: {
+  kind: "takeaway" | "delivery";
+  orders: OrderWithItems[];
+  onCreate: () => void;
+  creating: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const verb = kind === "takeaway" ? "à emporter" : "en livraison";
+  const icon = kind === "takeaway" ? "🥡" : "🛵";
+  const label = kind === "takeaway" ? "Emporter" : "Livraison";
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <p className="text-sm text-brown-light">
+          {orders.length === 0 ? (
+            <>Aucune commande {verb} pour le moment.</>
+          ) : (
+            <>
+              {orders.length} commande{orders.length > 1 ? "s" : ""} {verb}.
+            </>
+          )}
+        </p>
+        <button
+          onClick={onCreate}
+          disabled={creating}
+          className="group relative inline-flex items-center gap-2.5 px-5 py-3 rounded-xl bg-brown text-cream text-sm font-semibold tracking-wide shadow-lg shadow-brown/20 hover:bg-brown-light disabled:opacity-60 transition active:scale-95"
+        >
+          <span aria-hidden>{icon}</span>
+          <span>
+            Nouvelle commande {label.toLowerCase()}
+          </span>
         </button>
       </div>
 
-      {/* ─── Tables grid ───────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-        {TABLE_NUMBERS.map((n) => {
-          const order = orderByTable.get(n);
-          const state = deriveTileState(order);
-          return (
-            <TableTile
-              key={n}
-              number={n}
-              state={state}
-              order={order}
-              onClick={() => router.push(`/staff/table/${n}`)}
-            />
-          );
-        })}
-      </div>
-
-      {/* ─── Takeaway / delivery list ──────────────── */}
-      {takeawayOrders.length > 0 && (
-        <div className="mt-10">
-          <h2 className="font-[family-name:var(--font-display)] text-xl text-brown font-semibold mb-3">
-            Commandes à emporter / livraison
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <AnimatePresence initial={false}>
-              {takeawayOrders.map((o) => (
-                <motion.button
-                  key={o.id}
-                  layout
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => router.push(`/staff/order/${o.id}`)}
-                  className="text-left bg-white-warm border border-terracotta/40 rounded-xl p-4 hover:border-gold transition"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs uppercase tracking-[0.2em] text-brown-light">
-                      {o.source === "delivery" ? "Livraison" : "Emporter"}
-                    </span>
-                    <span className="text-xs text-brown-light tabular-nums">
-                      {formatDuration(minutesSince(o.created_at))}
-                    </span>
-                  </div>
-                  <p className="mt-2 font-[family-name:var(--font-display)] text-lg text-brown font-semibold">
-                    {o.items.length} article{o.items.length > 1 ? "s" : ""}
-                  </p>
-                  <p className="mt-1 text-sm text-brown-light">
-                    {formatCents(o.total_cents)}
-                  </p>
-                </motion.button>
-              ))}
-            </AnimatePresence>
+      {orders.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-terracotta/25 bg-white-warm/50 py-16 text-center">
+          <div className="text-4xl mb-3" aria-hidden>
+            {icon}
           </div>
+          <p className="text-sm text-brown-light max-w-md mx-auto px-6">
+            Les commandes {verb} apparaîtront ici dès qu&apos;elles seront
+            créées — depuis le plan de salle ou via une plateforme connectée.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <AnimatePresence initial={false}>
+            {orders.map((o) => (
+              <motion.button
+                key={o.id}
+                layout
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => onOpen(o.id)}
+                className="text-left bg-white-warm border border-terracotta/40 rounded-xl p-4 hover:border-gold transition"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-[0.2em] text-brown-light">
+                    {label}
+                  </span>
+                  <span className="text-xs text-brown-light tabular-nums">
+                    {formatDuration(minutesSince(o.created_at))}
+                  </span>
+                </div>
+                <p className="mt-2 font-[family-name:var(--font-display)] text-lg text-brown font-semibold">
+                  {o.items.length} article{o.items.length > 1 ? "s" : ""}
+                </p>
+                <p className="mt-1 text-sm text-brown-light">
+                  {formatCents(o.total_cents)}
+                </p>
+              </motion.button>
+            ))}
+          </AnimatePresence>
         </div>
       )}
     </div>
@@ -261,12 +547,12 @@ export default function TablesPage() {
 }
 
 function TableTile({
-  number,
+  config,
   state,
   order,
   onClick,
 }: {
-  number: number;
+  config: TableConfig;
   state: TileState;
   order?: OrderWithItems;
   onClick: () => void;
@@ -297,13 +583,15 @@ function TableTile({
         />
       )}
 
-      <div className="flex items-start justify-between">
-        <span className="text-[10px] uppercase tracking-[0.22em] text-brown-light/70">
-          Table
-        </span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <span className="block text-[10px] uppercase tracking-[0.22em] text-brown-light/70">
+            {config.zone || "Table"}
+          </span>
+        </div>
         <span
           className={[
-            "text-[10px] font-bold uppercase tracking-[0.18em] px-2 py-0.5 rounded",
+            "text-[10px] font-bold uppercase tracking-[0.18em] px-2 py-0.5 rounded whitespace-nowrap",
             state === "libre"
               ? "bg-brown/5 text-brown-light/70"
               : state === "occupee"
@@ -320,8 +608,18 @@ function TableTile({
       </div>
 
       <div className="flex-1 flex items-center justify-center">
-        <span className="font-[family-name:var(--font-display)] text-5xl md:text-6xl font-bold leading-none">
-          {number}
+        <span
+          className="font-[family-name:var(--font-display)] font-bold leading-none text-center break-words"
+          style={{
+            fontSize:
+              config.label.length <= 3
+                ? "clamp(2.25rem, 6vw, 3.5rem)"
+                : config.label.length <= 6
+                  ? "clamp(1.5rem, 4vw, 2.25rem)"
+                  : "clamp(1.1rem, 2.8vw, 1.5rem)",
+          }}
+        >
+          {config.label || `T${config.number}`}
         </span>
       </div>
 
@@ -333,20 +631,27 @@ function TableTile({
               {elapsed}
             </p>
             {state === "prete" && (() => {
-              const ready = order.items.filter((i) => i.status === "ready").length;
-              const total = order.items.filter((i) => i.status !== "cancelled" && i.status !== "served").length;
+              const ready = order.items.filter((i) => i.status === "ready")
+                .length;
+              const total = order.items.filter(
+                (i) => i.status !== "cancelled" && i.status !== "served"
+              ).length;
               return (
                 <p className="text-[11px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded inline-block">
-                  ✓ {ready}/{total} plat{total > 1 ? "s" : ""} prêt{ready > 1 ? "s" : ""}
+                  ✓ {ready}/{total} plat{total > 1 ? "s" : ""} prêt
+                  {ready > 1 ? "s" : ""}
                 </p>
               );
             })()}
             {state === "cuisine" && (() => {
-              const cooking = order.items.filter((i) => i.status === "cooking").length;
-              const ready = order.items.filter((i) => i.status === "ready").length;
+              const cooking = order.items.filter((i) => i.status === "cooking")
+                .length;
+              const ready = order.items.filter((i) => i.status === "ready")
+                .length;
               return (
                 <p className="text-[11px] font-medium text-[#C56A19]">
-                  🔥 {cooking} en prépa{ready > 0 ? ` · ✓ ${ready} prêt${ready > 1 ? "s" : ""}` : ""}
+                  🔥 {cooking} en prépa
+                  {ready > 0 ? ` · ✓ ${ready} prêt${ready > 1 ? "s" : ""}` : ""}
                 </p>
               );
             })()}
@@ -355,7 +660,10 @@ function TableTile({
             </p>
           </>
         ) : (
-          <p className="text-xs text-brown-light/60">Toucher pour ouvrir</p>
+          <p className="text-xs text-brown-light/60">
+            {config.capacity} couvert{config.capacity > 1 ? "s" : ""} · toucher
+            pour ouvrir
+          </p>
         )}
       </div>
     </motion.button>

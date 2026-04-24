@@ -42,6 +42,8 @@ const ALLOWED_KEYS = [
   "menu_desserts_pdf_url",
   // Payment
   "payment_methods",
+  // Tables (floor plan)
+  "tables",
   // Features
   "feature_reservations",
   "feature_qr_menu",
@@ -93,6 +95,41 @@ export async function PATCH(req: NextRequest) {
         .map((s) => (typeof s === "string" ? s.trim() : ""))
         .filter(Boolean)
         .slice(0, 20);
+    }
+    if (Array.isArray(updates.tables)) {
+      const seen = new Set<number>();
+      updates.tables = updates.tables
+        .map((t) => {
+          if (!t || typeof t !== "object") return null;
+          const row = t as {
+            number?: unknown;
+            label?: unknown;
+            capacity?: unknown;
+            zone?: unknown;
+          };
+          const num = Number(row.number);
+          if (!Number.isFinite(num) || num < 1 || num > 999) return null;
+          if (seen.has(num)) return null;
+          seen.add(num);
+          const label = typeof row.label === "string" && row.label.trim()
+            ? row.label.trim().slice(0, 24)
+            : `T${num}`;
+          const capacity = Math.max(
+            1,
+            Math.min(20, Number(row.capacity) || 4)
+          );
+          const zone =
+            typeof row.zone === "string" && row.zone.trim()
+              ? row.zone.trim().slice(0, 24)
+              : null;
+          return { number: num, label, capacity, zone };
+        })
+        .filter(
+          (t): t is { number: number; label: string; capacity: number; zone: string | null } =>
+            t !== null
+        )
+        .sort((a, b) => a.number - b.number)
+        .slice(0, 200);
     }
     if (Array.isArray(updates.hours)) {
       updates.hours = updates.hours

@@ -7,6 +7,19 @@ export interface OpeningHour {
   time: string;
 }
 
+/**
+ * Table configuration — white-label friendly.
+ * `number` is the stable DB reference (int, used in orders.table_number).
+ * `label` is the free-text name displayed to staff ("T1", "Terrasse 2", "Bar").
+ * `zone` lets operators group tables by area (Salle, Terrasse, Étage, Bar…).
+ */
+export interface TableConfig {
+  number: number;
+  label: string;
+  capacity: number;
+  zone?: string | null;
+}
+
 export interface RestaurantSettings {
   id: number;
 
@@ -57,6 +70,9 @@ export interface RestaurantSettings {
   feature_terrace: boolean;
   feature_pmr: boolean;
   feature_halal: boolean;
+
+  // Tables (floor plan — white-label: any count, any name)
+  tables: TableConfig[];
 
   // Financial
   tax_rate: number;
@@ -122,6 +138,12 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
   feature_terrace: true,
   feature_pmr: true,
   feature_halal: true,
+  tables: Array.from({ length: 10 }, (_, i) => ({
+    number: i + 1,
+    label: `T${i + 1}`,
+    capacity: 4,
+    zone: "Salle",
+  })),
   tax_rate: 10,
   legal_name: null,
   siret: null,

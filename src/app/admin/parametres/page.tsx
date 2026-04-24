@@ -260,6 +260,66 @@ export default function ParametresPage() {
       {/* ══════════ Savings banner (visible only if replaced platforms exist) ══════════ */}
       <SavingsBanner />
 
+      {/* ══════════ Dedicated sub-configs ══════════ */}
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.04 }}
+        className="mb-10"
+      >
+        <h2 className="text-xs uppercase tracking-widest text-brown-light/60 font-bold mb-3 flex items-center gap-2">
+          <span>🧩</span> Configurations avancées
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Link
+            href="/admin/parametres/tables"
+            className="group relative overflow-hidden rounded-2xl bg-white-warm border border-terracotta/20 p-5 hover:border-gold transition"
+          >
+            <div className="flex items-start gap-4">
+              <span className="text-3xl flex-shrink-0" aria-hidden>🍽</span>
+              <div className="min-w-0">
+                <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-brown leading-tight">
+                  Plan de salle
+                </h3>
+                <p className="text-xs text-brown-light/80 mt-1">
+                  Nommez, ajoutez, regroupez vos tables par zone. Le POS et le
+                  KDS suivent automatiquement.
+                </p>
+                <p className="text-[11px] text-gold font-bold uppercase tracking-wider mt-2 inline-flex items-center gap-1">
+                  Configurer
+                  <span className="transition group-hover:translate-x-0.5">
+                    →
+                  </span>
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
+            href="/admin/fidelite/config"
+            className="group relative overflow-hidden rounded-2xl bg-white-warm border border-terracotta/20 p-5 hover:border-gold transition"
+          >
+            <div className="flex items-start gap-4">
+              <span className="text-3xl flex-shrink-0" aria-hidden>⭐</span>
+              <div className="min-w-0">
+                <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-brown leading-tight">
+                  Programme fidélité
+                </h3>
+                <p className="text-xs text-brown-light/80 mt-1">
+                  Tampons requis, récompense, couleurs de la carte, message de
+                  bienvenue.
+                </p>
+                <p className="text-[11px] text-gold font-bold uppercase tracking-wider mt-2 inline-flex items-center gap-1">
+                  Configurer
+                  <span className="transition group-hover:translate-x-0.5">
+                    →
+                  </span>
+                </p>
+              </div>
+            </div>
+          </Link>
+        </div>
+      </motion.section>
+
       {/* ══════════ Personnalisation (NEW) ══════════ */}
       <motion.section
         initial={{ opacity: 0, y: 20 }}
