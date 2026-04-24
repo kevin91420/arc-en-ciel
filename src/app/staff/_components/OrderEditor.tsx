@@ -11,7 +11,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CARTE } from "@/data/carte";
@@ -43,6 +43,37 @@ function modifiersFor(categoryId: string): string[] {
   return QUICK_MODIFIERS[categoryId] ?? DEFAULT_MODIFIERS;
 }
 
+/* ─── Merge logic ──────────────────────────────────────────
+ *
+ * When a server taps a menu item, we'd rather bump the quantity on an existing
+ * line than pile on duplicate rows. But a merge is only safe if the line is
+ * still malleable AND carries no customisation that would be lost:
+ *
+ *   - status === "pending"      (chef hasn't touched it yet)
+ *   - no modifiers              (re-tapping "Margherita" must NOT merge into
+ *                                "Margherita, sans oignons")
+ *   - no notes                  (same reason — free-form annotations are
+ *                                caller intent we mustn't swallow)
+ *   - same menu_item_id         (obviously)
+ *   - same price_cents          (protects against happy-hour / menu edits)
+ *
+ * Anything else → caller should POST a fresh line.
+ * ─────────────────────────────────────────────────────────── */
+export function findMergeableItem(
+  items: readonly OrderItem[],
+  menuItem: Pick<PosMenuItem, "id" | "price_cents">
+): OrderItem | null {
+  for (const item of items) {
+    if (item.status !== "pending") continue;
+    if (item.menu_item_id !== menuItem.id) continue;
+    if (item.price_cents !== menuItem.price_cents) continue;
+    if (item.modifiers && item.modifiers.length > 0) continue;
+    if (item.notes && item.notes.trim().length > 0) continue;
+    return item;
+  }
+  return null;
+}
+
 /* ═════════════════════════════════════════════════════════ */
 
 type Props = {
@@ -57,6 +88,12 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [modifierTarget, setModifierTarget] = useState<OrderItem | null>(null);
   const [showPayment, setShowPayment] = useState(false);
+  /* Item id + monotonic tick — each merge bump flashes the row. Using a counter
+   * instead of a boolean so back-to-back taps each re-trigger the pulse. */
+  const [pulseTarget, setPulseTarget] = useState<{ id: string; tick: number } | null>(
+    null
+  );
+  const pulseTick = useRef(0);
 
   /* Keep the server state fresh without thrash. */
   const refresh = useCallback(async () => {
@@ -103,100 +140,138 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
 
   /* ─── Mutations ─────────────────────────────────── */
 
+  /* Flash the existing line so the server sees the quantity tick up instead of
+   * wondering "did my tap register?". Monotonic tick forces the effect to
+   * retrigger on every merge, even if the id is the same. */
+  function triggerPulse(itemId: string) {
+    pulseTick.current += 1;
+    setPulseTarget({ id: itemId, tick: pulseTick.current });
+  }
+
   async function addItem(menuItem: PosMenuItem) {
     if (busy || order.status === "paid") return;
+
+    /* Merge path: if there's already a pending line for the same dish with no
+     * customisation, bump its quantity instead of duplicating the row. */
+    const mergeTarget = findMergeableItem(items, menuItem);
+    if (mergeTarget) {
+      setBusy(true);
+      /* Optimistic: show the new quantity + pulse immediately. The realtime
+       * subscription will reconcile once the server confirms. */
+      const nextQty = mergeTarget.quantity + 1;
+      const optimistic: OrderWithItems = {
+        ...order,
+        items: items.map((it) =>
+          it.id === mergeTarget.id ? { ...it, quantity: nextQty } : it
+        ),
+      };
+      onChange(optimistic);
+      triggerPulse(mergeTarget.id);
+
+      try {
+        const res = await fetch(
+          `/api/staff/orders/${order.id}/items/${mergeTarget.id}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({ quantity: nextQty }),
+          }
+        );
+        if (res.ok) {
+          onChange((await res.json()) as OrderWithItems);
+        } else if (res.status === 409) {
+          /* The item raced to `cooking` between our check and the PATCH —
+           * fall back to adding a fresh line so we don't drop the tap. */
+          await postNewItem(menuItem);
+        } else {
+          /* Revert optimistic update on any other error. */
+          await refresh();
+        }
+      } catch {
+        await refresh();
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    /* No mergeable line — add a new one. */
     setBusy(true);
     try {
-      const res = await fetch(`/api/staff/orders/${order.id}/items`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          items: [
-            {
-              menu_item_id: menuItem.id,
-              menu_item_name: menuItem.name,
-              menu_item_category: menuItem.category_id,
-              price_cents: menuItem.price_cents,
-              quantity: 1,
-              station: menuItem.station,
-            },
-          ],
-        }),
-      });
-      if (res.ok) {
-        const fresh = (await res.json()) as OrderWithItems;
-        onChange(fresh);
-      }
+      await postNewItem(menuItem);
     } finally {
       setBusy(false);
     }
   }
 
+  async function postNewItem(menuItem: PosMenuItem) {
+    const res = await fetch(`/api/staff/orders/${order.id}/items`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        items: [
+          {
+            menu_item_id: menuItem.id,
+            menu_item_name: menuItem.name,
+            menu_item_category: menuItem.category_id,
+            price_cents: menuItem.price_cents,
+            quantity: 1,
+            station: menuItem.station,
+          },
+        ],
+      }),
+    });
+    if (res.ok) {
+      const fresh = (await res.json()) as OrderWithItems;
+      onChange(fresh);
+    }
+  }
+
   async function bumpQuantity(item: OrderItem, delta: 1 | -1) {
     if (busy) return;
+    if (item.status !== "pending") return;
+
+    const nextQty = item.quantity + delta;
+
+    if (nextQty < 1) {
+      /* Down past zero → remove the line entirely. */
+      await removeItem(item);
+      return;
+    }
+
     setBusy(true);
+    /* Optimistic bump for instant feedback on touch. */
+    const optimistic: OrderWithItems = {
+      ...order,
+      items: items.map((it) =>
+        it.id === item.id ? { ...it, quantity: nextQty } : it
+      ),
+    };
+    onChange(optimistic);
+    if (delta === 1) triggerPulse(item.id);
+
     try {
-      if (delta === 1 && item.status === "pending") {
-        /* Shortcut: re-add the same item as a new pending line to preserve the
-         * per-line status model. */
-        await fetch(`/api/staff/orders/${order.id}/items`, {
-          method: "POST",
+      const res = await fetch(
+        `/api/staff/orders/${order.id}/items/${item.id}`,
+        {
+          method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           cache: "no-store",
-          body: JSON.stringify({
-            items: [
-              {
-                menu_item_id: item.menu_item_id,
-                menu_item_name: item.menu_item_name,
-                menu_item_category: item.menu_item_category || undefined,
-                price_cents: item.price_cents,
-                quantity: 1,
-                station: item.station,
-              },
-            ],
-          }),
-        });
-        await refresh();
-      } else if (delta === -1 && item.status === "pending") {
-        /* Remove a unit. If quantity > 1, we leave the DB to handle cents
-         * recompute by PATCHing the quantity down — but the pos-client doesn't
-         * expose that, so we simulate via DELETE + add when needed.
-         * Simpler: just delete the whole line; the user can re-add if needed. */
-        if (item.quantity > 1) {
-          /* pos-client has no "update quantity" yet — we remove + re-add with
-           * quantity - 1. */
-          const newQty = item.quantity - 1;
-          await fetch(
-            `/api/staff/orders/${order.id}/items/${item.id}`,
-            { method: "DELETE", credentials: "include", cache: "no-store" }
-          );
-          await fetch(`/api/staff/orders/${order.id}/items`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-            body: JSON.stringify({
-              items: [
-                {
-                  menu_item_id: item.menu_item_id,
-                  menu_item_name: item.menu_item_name,
-                  menu_item_category: item.menu_item_category || undefined,
-                  price_cents: item.price_cents,
-                  quantity: newQty,
-                  modifiers: item.modifiers || undefined,
-                  station: item.station,
-                },
-              ],
-            }),
-          });
-          await refresh();
-        } else {
-          await removeItem(item);
+          body: JSON.stringify({ quantity: nextQty }),
         }
+      );
+      if (res.ok) {
+        onChange((await res.json()) as OrderWithItems);
+      } else {
+        await refresh();
       }
+    } catch {
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -396,10 +471,19 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
                     <OrderLine
                       key={item.id}
                       item={item}
+                      fromCustomer={
+                        order.source === "dine_in_qr" &&
+                        item.status === "pending"
+                      }
                       onBump={(d) => bumpQuantity(item, d)}
                       onOpenModifier={() => setModifierTarget(item)}
                       onRemove={() => removeItem(item)}
                       busy={busy}
+                      pulseTick={
+                        pulseTarget && pulseTarget.id === item.id
+                          ? pulseTarget.tick
+                          : 0
+                      }
                     />
                   ))}
                 </AnimatePresence>
@@ -602,16 +686,24 @@ const ITEM_STATUS_STYLES: Record<
 
 function OrderLine({
   item,
+  fromCustomer,
   onBump,
   onOpenModifier,
   onRemove,
   busy,
+  pulseTick,
 }: {
   item: OrderItem;
+  /** True when this line was submitted by the customer via the QR menu and
+   * hasn't been validated by a server yet. Drives the "📱 Client" badge. */
+  fromCustomer: boolean;
   onBump: (delta: 1 | -1) => void;
   onOpenModifier: () => void;
   onRemove: () => void;
   busy: boolean;
+  /* Monotonic counter incremented by the parent each time this row's quantity
+   * was bumped via a merge. Zero means "no pulse queued". */
+  pulseTick: number;
 }) {
   const s = ITEM_STATUS_STYLES[item.status];
   const canEdit = item.status === "pending";
@@ -634,9 +726,20 @@ function OrderLine({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="font-[family-name:var(--font-display)] font-semibold text-brown truncate">
-              {item.menu_item_name}
-            </p>
+            <div className="min-w-0 flex items-baseline gap-2 flex-wrap">
+              <p className="font-[family-name:var(--font-display)] font-semibold text-brown truncate">
+                {item.menu_item_name}
+              </p>
+              {fromCustomer && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] bg-gold/20 text-gold px-2 py-0.5 rounded-full border border-gold/30"
+                  title="Ligne envoyée par le client via le QR menu"
+                >
+                  <span aria-hidden>📱</span>
+                  <span>Client</span>
+                </span>
+              )}
+            </div>
             <p className="text-sm font-semibold text-brown tabular-nums shrink-0">
               {formatCents(item.price_cents * item.quantity)}
             </p>
@@ -686,9 +789,23 @@ function OrderLine({
           >
             −
           </button>
-          <span className="w-6 text-center text-sm font-bold tabular-nums text-brown">
+          {/* The quantity is the signal the server tracks most closely — pulse
+           * it on each merge so the tap registers visually even when the row
+           * stays in place. `key` bumps on every merge tick to retrigger.
+           * Gold flash → brown rest mirrors the brand palette. */}
+          <motion.span
+            key={pulseTick}
+            initial={
+              pulseTick > 0
+                ? { scale: 1.35, color: "var(--color-gold)" }
+                : false
+            }
+            animate={{ scale: 1, color: "var(--color-brown)" }}
+            transition={{ duration: 0.32, ease: [0.34, 1.56, 0.64, 1] }}
+            className="w-6 text-center text-sm font-bold tabular-nums text-brown"
+          >
             {item.quantity}
-          </span>
+          </motion.span>
           <button
             aria-label="Ajouter une unité"
             disabled={!canEdit || busy}

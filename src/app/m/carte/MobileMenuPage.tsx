@@ -1,12 +1,24 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, use } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, use } from "react";
 import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
+import { formatCents, parsePriceToCents } from "@/lib/format";
 
 /* ═══════════════════════════════════════════════════════════
-   MOBILE QR MENU — App-like experience for table diners
+   MOBILE QR MENU — App-like experience for table diners.
+
+   Cart flow:
+     1. Tap "+ Ajouter" on a card → item appears in localStorage cart
+     2. Tap 🛒 in the bottom bar → opens CartDrawer bottom sheet
+     3. Adjust quantities / remove items
+     4. Tap "Envoyer ma commande" → POST /api/m/order
+     5. Cart clears, success toast
+
+   Cart persistence key: `cart-table-{tableNumber}` (LocalStorage).
+   Items merge by (menu_item_id + modifiers signature) — different
+   modifiers = separate lines.
    ═══════════════════════════════════════════════════════════ */
 
 const FILTERS: { key: DietaryTag | "all"; label: string; icon: string }[] = [
@@ -16,6 +28,66 @@ const FILTERS: { key: DietaryTag | "all"; label: string; icon: string }[] = [
   { key: "epice", label: "Épicé", icon: "🌶️" },
 ];
 
+/* Mirrors the mapping in src/app/staff/_lib/menu.ts — kept inline here to
+ * avoid pulling a staff-side module into a public-facing client bundle. */
+type Station = "main" | "pizza" | "grill" | "cold" | "dessert" | "bar";
+function stationForCategory(categoryId: string): Station {
+  switch (categoryId) {
+    case "pizzas":
+      return "pizza";
+    case "grillades":
+      return "grill";
+    case "entrees":
+    case "salades":
+      return "cold";
+    case "desserts":
+      return "dessert";
+    case "boissons":
+      return "bar";
+    default:
+      return "main";
+  }
+}
+
+/* ─── Cart types ─── */
+interface CartLine {
+  /** Stable line id — lets us edit quantity without stomping on other lines
+   * that share the same menu_item_id but have different modifiers. */
+  line_id: string;
+  menu_item_id: string;
+  menu_item_name: string;
+  menu_item_category: string;
+  price_cents: number;
+  quantity: number;
+  modifiers?: string[];
+  notes?: string;
+  station: Station;
+}
+
+type SubmitState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "success" }
+  | { kind: "error"; message: string };
+
+function cartKey(table: string | undefined): string | null {
+  if (!table) return null;
+  return `cart-table-${table}`;
+}
+
+function signatureFor(item: Pick<CartLine, "menu_item_id" | "modifiers">): string {
+  const mods = [...(item.modifiers || [])].sort().join("|");
+  return `${item.menu_item_id}::${mods}`;
+}
+
+function makeLineId(): string {
+  /* crypto.randomUUID isn't universal on older iOS Safari — cheap fallback. */
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `l-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 export default function MobileMenuPage({
   searchParamsPromise,
 }: {
@@ -23,35 +95,44 @@ export default function MobileMenuPage({
 }) {
   const searchParams = use(searchParamsPromise);
   const tableFromUrl = searchParams.table;
+  const prefersReducedMotion = useReducedMotion();
 
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DietaryTag | "all">("all");
   const [activeCategory, setActiveCategory] = useState(CARTE[0].id);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [callWaiterOpen, setCallWaiterOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [storedTable, setStoredTable] = useState<string | undefined>(undefined);
   const [tablePromptOpen, setTablePromptOpen] = useState(false);
+
+  /* Cart state — null until we've read localStorage to avoid flash-of-empty. */
+  const [cart, setCart] = useState<CartLine[] | null>(null);
+  const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
+  const [flashLineId, setFlashLineId] = useState<string | null>(null);
 
   /* Effective table number — URL param wins, otherwise use the stored one */
   const tableNumber = tableFromUrl || storedTable;
 
   const mainRef = useRef<HTMLDivElement>(null);
 
-  /* Load favorites + stored table + onboarding state */
+  /* Load stored table + onboarding state.
+   *
+   * We read localStorage here and setState — this is the canonical "sync from
+   * external system" case (localStorage isn't available during SSR, and
+   * reading it in a lazy initialiser would hydration-mismatch). Disabling
+   * react-hooks/set-state-in-effect locally: the rule warns about cascading
+   * renders, but here the state settles after one extra render on mount,
+   * which is acceptable for post-hydration hydration of client-only storage.
+   */
   useEffect(() => {
-    const stored = localStorage.getItem("arc-favorites");
-    if (stored) {
-      try {
-        setFavorites(new Set(JSON.parse(stored)));
-      } catch {}
-    }
-
     /* Smart table default: if no ?table= in URL, check localStorage or prompt */
     if (!tableFromUrl) {
       const storedT = localStorage.getItem("arc-table");
       if (storedT) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setStoredTable(storedT);
       } else {
         setTablePromptOpen(true);
@@ -64,6 +145,46 @@ export default function MobileMenuPage({
       setShowOnboarding(true);
     }
   }, [tableFromUrl]);
+
+  /* Hydrate cart from localStorage whenever the effective table changes.
+   * We key by table so switching tables doesn't mix items. Same external-
+   * storage-sync justification as above. */
+  useEffect(() => {
+    const key = cartKey(tableNumber);
+    if (!key) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCart([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CartLine[];
+        if (Array.isArray(parsed)) {
+          setCart(parsed);
+          return;
+        }
+      }
+    } catch {
+      /* Corrupt cart — nuke it silently. */
+    }
+    setCart([]);
+  }, [tableNumber]);
+
+  /* Persist cart on any change. */
+  useEffect(() => {
+    const key = cartKey(tableNumber);
+    if (!key || cart === null) return;
+    try {
+      if (cart.length === 0) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify(cart));
+      }
+    } catch {
+      /* localStorage full / private mode → silent. Cart still works in-memory. */
+    }
+  }, [cart, tableNumber]);
 
   const saveTable = (value: string) => {
     const trimmed = value.trim();
@@ -78,15 +199,154 @@ export default function MobileMenuPage({
     setTablePromptOpen(false);
   };
 
-  const toggleFavorite = (id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      localStorage.setItem("arc-favorites", JSON.stringify([...next]));
-      return next;
+  /* ─── Cart mutations ───────────────────────────────── */
+
+  const addToCart = useCallback(
+    (item: MenuItem, categoryId: string, modifiers?: string[]) => {
+      const priceCents = parsePriceToCents(item.price);
+      if (priceCents <= 0) return;
+
+      const candidate = {
+        menu_item_id: item.id,
+        modifiers: modifiers && modifiers.length > 0 ? modifiers : undefined,
+      };
+      const sig = signatureFor(candidate);
+
+      setCart((prev) => {
+        const base = prev ?? [];
+        const idx = base.findIndex((l) => signatureFor(l) === sig);
+        if (idx >= 0) {
+          /* Bump the existing line by 1. */
+          const next = base.slice();
+          const existing = next[idx];
+          next[idx] = {
+            ...existing,
+            quantity: Math.min(20, existing.quantity + 1),
+          };
+          setFlashLineId(existing.line_id);
+          return next;
+        }
+        const line: CartLine = {
+          line_id: makeLineId(),
+          menu_item_id: item.id,
+          menu_item_name: item.name,
+          menu_item_category: categoryId,
+          price_cents: priceCents,
+          quantity: 1,
+          modifiers: candidate.modifiers,
+          station: stationForCategory(categoryId),
+        };
+        setFlashLineId(line.line_id);
+        return [...base, line];
+      });
+    },
+    []
+  );
+
+  /* Clear the flash highlight after a beat. */
+  useEffect(() => {
+    if (!flashLineId) return;
+    const id = window.setTimeout(() => setFlashLineId(null), 900);
+    return () => window.clearTimeout(id);
+  }, [flashLineId]);
+
+  const setLineQuantity = useCallback((lineId: string, quantity: number) => {
+    setCart((prev) => {
+      if (!prev) return prev;
+      if (quantity <= 0) {
+        return prev.filter((l) => l.line_id !== lineId);
+      }
+      return prev.map((l) =>
+        l.line_id === lineId
+          ? { ...l, quantity: Math.min(20, Math.max(1, Math.floor(quantity))) }
+          : l
+      );
     });
-  };
+  }, []);
+
+  const removeLine = useCallback((lineId: string) => {
+    setCart((prev) => (prev ? prev.filter((l) => l.line_id !== lineId) : prev));
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setCart([]);
+  }, []);
+
+  /* ─── Derived cart stats ────────────────────────────── */
+  const cartCount = useMemo(
+    () => (cart || []).reduce((s, l) => s + l.quantity, 0),
+    [cart]
+  );
+  const cartSubtotal = useMemo(
+    () => (cart || []).reduce((s, l) => s + l.price_cents * l.quantity, 0),
+    [cart]
+  );
+  const cartTax = Math.round(cartSubtotal * 0.1);
+  const cartTotal = cartSubtotal + cartTax;
+
+  /* ─── Submit cart ───────────────────────────────────── */
+  const submitCart = useCallback(async () => {
+    if (!cart || cart.length === 0) return;
+    if (!tableNumber) {
+      setSubmitState({
+        kind: "error",
+        message:
+          "Indiquez votre numéro de table avant d'envoyer la commande.",
+      });
+      return;
+    }
+    const tableNum = Number(tableNumber);
+    if (!Number.isFinite(tableNum) || tableNum < 1 || tableNum > 50) {
+      setSubmitState({
+        kind: "error",
+        message: "Numéro de table invalide.",
+      });
+      return;
+    }
+
+    setSubmitState({ kind: "sending" });
+    try {
+      const res = await fetch("/api/m/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          table_number: tableNum,
+          items: cart.map((l) => ({
+            menu_item_id: l.menu_item_id,
+            menu_item_name: l.menu_item_name,
+            menu_item_category: l.menu_item_category,
+            price_cents: l.price_cents,
+            quantity: l.quantity,
+            modifiers: l.modifiers,
+            notes: l.notes,
+            station: l.station,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        let message = "Impossible d'envoyer la commande.";
+        try {
+          const json = (await res.json()) as { error?: string };
+          if (json?.error) message = json.error;
+        } catch {}
+        setSubmitState({ kind: "error", message });
+        return;
+      }
+      setSubmitState({ kind: "success" });
+      clearCart();
+      /* Auto-dismiss the drawer after a beat. */
+      window.setTimeout(() => {
+        setCartOpen(false);
+        /* Reset to idle a moment later so if user reopens it, it's clean. */
+        window.setTimeout(() => setSubmitState({ kind: "idle" }), 400);
+      }, 2200);
+    } catch {
+      setSubmitState({
+        kind: "error",
+        message: "Connexion interrompue. Vérifiez votre réseau.",
+      });
+    }
+  }, [cart, tableNumber, clearCart]);
 
   /* Filter + search logic */
   const filteredCarte = useMemo(() => {
@@ -111,7 +371,7 @@ export default function MobileMenuPage({
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            setActiveCategory(entry.target.id);
+            setActiveCategory(entry.target.id.replace(/^cat-/, ""));
           }
         });
       },
@@ -127,8 +387,8 @@ export default function MobileMenuPage({
   const scrollToCategory = (id: string) => {
     const el = document.getElementById(`cat-${id}`);
     if (el) {
-      const y = el.getBoundingClientRect().top + window.scrollY - 180;
-      window.scrollTo({ top: y, behavior: "smooth" });
+      const y = el.getBoundingClientRect().top + window.scrollY - 160;
+      window.scrollTo({ top: y, behavior: prefersReducedMotion ? "auto" : "smooth" });
     }
   };
 
@@ -138,9 +398,7 @@ export default function MobileMenuPage({
   };
 
   const totalItems = CARTE.reduce((sum, cat) => sum + cat.items.length, 0);
-  const favItems = Array.from(favorites)
-    .map((id) => CARTE.flatMap((c) => c.items).find((i) => i.id === id))
-    .filter(Boolean) as MenuItem[];
+  const activeFilterMeta = FILTERS.find((f) => f.key === activeFilter);
 
   return (
     <div className="min-h-screen bg-cream bg-paper pb-24">
@@ -162,21 +420,55 @@ export default function MobileMenuPage({
               )}
             </div>
             <button
-              onClick={() => setCallWaiterOpen(true)}
-              className="relative w-11 h-11 rounded-full bg-red text-white-warm flex items-center justify-center shadow-lg shadow-red/30 active:scale-95 transition-transform"
-              aria-label="Appeler le serveur"
+              onClick={() => setFiltersOpen(true)}
+              className={`relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-semibold border transition active:scale-95 ${
+                activeFilter !== "all"
+                  ? "bg-brown text-cream border-brown"
+                  : "bg-white-warm text-brown-light border-terracotta/20"
+              }`}
+              aria-label="Ouvrir les filtres"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a7 7 0 10-14 0v3.2a2 2 0 01-.6 1.4L2 17h5m8 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 4h18M6 12h12M10 20h4"
+                />
               </svg>
+              <span>
+                {activeFilter === "all"
+                  ? "Filtres"
+                  : `${activeFilterMeta?.icon ?? ""} ${activeFilterMeta?.label ?? "Filtres"}`}
+              </span>
+              {activeFilter !== "all" && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold border-2 border-cream" />
+              )}
             </button>
           </div>
 
           {/* Search */}
-          <label className="relative block mb-3">
+          <label className="relative block">
             <span className="sr-only">Rechercher un plat</span>
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light/60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light/60"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"
+              />
             </svg>
             <input
               type="text"
@@ -197,40 +489,13 @@ export default function MobileMenuPage({
               </button>
             )}
           </label>
-
-          {/* Filter chips */}
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-4 px-4">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setActiveFilter(f.key)}
-                className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-95 ${
-                  activeFilter === f.key
-                    ? "bg-brown text-cream border-brown"
-                    : "bg-white-warm text-brown-light border-terracotta/20"
-                }`}
-              >
-                <span>{f.icon}</span>
-                <span>{f.label}</span>
-              </button>
-            ))}
-            {favorites.size > 0 && (
-              <button
-                onClick={() => {
-                  const el = document.getElementById("cat-favorites");
-                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border bg-gold/20 text-brown border-gold/40 active:scale-95"
-              >
-                <span>❤️</span>
-                <span>Favoris ({favorites.size})</span>
-              </button>
-            )}
-          </div>
         </div>
 
         {/* Category tabs — sticky under header */}
-        <nav className="overflow-x-auto scrollbar-hide border-t border-terracotta/10" aria-label="Catégories">
+        <nav
+          className="overflow-x-auto scrollbar-hide border-t border-terracotta/10"
+          aria-label="Catégories"
+        >
           <ul className="flex items-center gap-1 px-4 py-2 min-w-max">
             {CARTE.map((cat) => (
               <li key={cat.id}>
@@ -253,30 +518,6 @@ export default function MobileMenuPage({
 
       {/* ═══ MAIN ═══ */}
       <main ref={mainRef} className="px-4 pt-4">
-        {/* Favorites section */}
-        {favItems.length > 0 && !search && activeFilter === "all" && (
-          <section id="cat-favorites" className="mb-8 scroll-mt-44">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg">❤️</span>
-              <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown">
-                Vos favoris
-              </h2>
-              <span className="text-xs text-brown-light/60">({favItems.length})</span>
-            </div>
-            <div className="space-y-3">
-              {favItems.map((item) => (
-                <MobileMenuCard
-                  key={item.id}
-                  item={item}
-                  isFavorite={true}
-                  onFavorite={toggleFavorite}
-                  onClick={() => setSelectedItem(item)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         {filteredCarte.length === 0 ? (
           <div className="py-20 text-center">
             <div className="text-5xl mb-4">🔍</div>
@@ -296,7 +537,7 @@ export default function MobileMenuPage({
             <section
               key={category.id}
               id={`cat-${category.id}`}
-              className="mb-8 scroll-mt-44"
+              className="mb-8 scroll-mt-40"
               aria-labelledby={`heading-${category.id}`}
             >
               {/* Category header */}
@@ -319,9 +560,8 @@ export default function MobileMenuPage({
                   <MobileMenuCard
                     key={item.id}
                     item={item}
-                    isFavorite={favorites.has(item.id)}
-                    onFavorite={toggleFavorite}
                     onClick={() => setSelectedItem(item)}
+                    onAdd={() => addToCart(item, category.id)}
                   />
                 ))}
               </div>
@@ -336,50 +576,65 @@ export default function MobileMenuPage({
         </div>
       </main>
 
-      {/* ═══ BOTTOM BAR ═══ */}
+      {/* ═══ BOTTOM BAR — Cart + Waiter ═══ */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-20 bg-brown text-cream border-t border-gold/20 shadow-2xl"
         aria-label="Actions"
       >
-        <div className="flex items-center justify-around px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <a
-            href="tel:+33164540030"
-            className="flex flex-col items-center gap-0.5 px-4 py-2 active:scale-95 transition-transform"
+        <div className="flex items-stretch justify-between gap-2 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button
+            onClick={() => setCartOpen(true)}
+            className="relative flex-1 flex items-center justify-center gap-2 h-14 rounded-2xl bg-gold text-brown font-bold text-sm active:scale-[0.98] transition-transform shadow-md shadow-black/10"
           >
-            <svg className="w-5 h-5 text-gold-light" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+              />
             </svg>
-            <span className="text-[10px] font-semibold">Appeler</span>
-          </a>
+            <span>Mon panier</span>
+            {cartCount > 0 && (
+              <motion.span
+                key={cartCount}
+                initial={prefersReducedMotion ? false : { scale: 0.6, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                className="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-red text-white-warm text-[11px] font-black tabular-nums"
+                aria-label={`${cartCount} articles`}
+              >
+                {cartCount}
+              </motion.span>
+            )}
+          </button>
           <button
             onClick={() => setCallWaiterOpen(true)}
-            className="flex flex-col items-center gap-0.5 px-4 py-2 active:scale-95 transition-transform"
+            className="flex-shrink-0 flex items-center justify-center gap-2 h-14 px-4 rounded-2xl bg-brown-light/20 text-cream border border-gold/20 font-semibold text-sm active:scale-[0.98] transition-transform"
           >
-            <svg className="w-5 h-5 text-gold-light" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a7 7 0 10-14 0v3.2a2 2 0 01-.6 1.4L2 17h5m8 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            <svg
+              className="w-5 h-5 text-gold-light"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a7 7 0 10-14 0v3.2a2 2 0 01-.6 1.4L2 17h5m8 0v1a3 3 0 11-6 0v-1m6 0H9"
+              />
             </svg>
-            <span className="text-[10px] font-semibold">Serveur</span>
+            <span className="hidden xs:inline">Serveur</span>
+            <span className="xs:hidden">🙋</span>
           </button>
-          <button
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="flex flex-col items-center gap-0.5 px-4 py-2 active:scale-95 transition-transform"
-          >
-            <svg className="w-5 h-5 text-gold-light" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
-            </svg>
-            <span className="text-[10px] font-semibold">Haut</span>
-          </button>
-          <a
-            href="https://maps.app.goo.gl/abc"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-col items-center gap-0.5 px-4 py-2 active:scale-95 transition-transform"
-          >
-            <svg className="w-5 h-5 text-gold-light" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <span className="text-[10px] font-semibold">Plan</span>
-          </a>
         </div>
       </nav>
 
@@ -388,9 +643,17 @@ export default function MobileMenuPage({
         {selectedItem && (
           <DetailModal
             item={selectedItem}
-            isFavorite={favorites.has(selectedItem.id)}
-            onFavorite={toggleFavorite}
             onClose={() => setSelectedItem(null)}
+            onAdd={() => {
+              /* Find the category to infer station. */
+              const cat = CARTE.find((c) =>
+                c.items.some((i) => i.id === selectedItem.id)
+              );
+              if (cat) addToCart(selectedItem, cat.id);
+              setSelectedItem(null);
+              /* Quick micro-reassurance: open the cart briefly. */
+              setCartOpen(true);
+            }}
           />
         )}
       </AnimatePresence>
@@ -405,9 +668,61 @@ export default function MobileMenuPage({
         )}
       </AnimatePresence>
 
+      {/* ═══ FILTERS BOTTOM SHEET ═══ */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <BottomSheetFilters
+            activeFilter={activeFilter}
+            onChange={(f) => {
+              setActiveFilter(f);
+              setFiltersOpen(false);
+            }}
+            onClose={() => setFiltersOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ CART DRAWER ═══ */}
+      <AnimatePresence>
+        {cartOpen && (
+          <CartDrawer
+            lines={cart || []}
+            subtotal={cartSubtotal}
+            tax={cartTax}
+            total={cartTotal}
+            tableNumber={tableNumber}
+            flashLineId={flashLineId}
+            submitState={submitState}
+            onClose={() => {
+              setCartOpen(false);
+              /* Reset error state when the user dismisses. */
+              if (submitState.kind === "error") {
+                setSubmitState({ kind: "idle" });
+              }
+            }}
+            onInc={(id) => {
+              const line = (cart || []).find((l) => l.line_id === id);
+              if (line) setLineQuantity(id, line.quantity + 1);
+            }}
+            onDec={(id) => {
+              const line = (cart || []).find((l) => l.line_id === id);
+              if (line) setLineQuantity(id, line.quantity - 1);
+            }}
+            onRemove={removeLine}
+            onSubmit={submitCart}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ═══ ONBOARDING ═══ */}
       <AnimatePresence>
-        {showOnboarding && <Onboarding onDismiss={dismissOnboarding} totalItems={totalItems} tableNumber={tableNumber} />}
+        {showOnboarding && (
+          <Onboarding
+            onDismiss={dismissOnboarding}
+            totalItems={totalItems}
+            tableNumber={tableNumber}
+          />
+        )}
       </AnimatePresence>
 
       {/* ═══ TABLE PROMPT ═══ */}
@@ -425,19 +740,17 @@ export default function MobileMenuPage({
    ═══════════════════════════════════════════════════════════ */
 function MobileMenuCard({
   item,
-  isFavorite,
-  onFavorite,
   onClick,
+  onAdd,
 }: {
   item: MenuItem;
-  isFavorite: boolean;
-  onFavorite: (id: string) => void;
   onClick: () => void;
+  onAdd: () => void;
 }) {
   return (
     <article
       onClick={onClick}
-      className="relative flex gap-3 bg-white-warm rounded-2xl p-3 shadow-sm shadow-brown/5 active:scale-[0.98] transition-transform cursor-pointer overflow-hidden"
+      className="relative flex gap-3 bg-white-warm rounded-2xl p-3 pb-12 shadow-sm shadow-brown/5 active:scale-[0.99] transition-transform cursor-pointer overflow-hidden"
     >
       {/* Image */}
       {item.image && (
@@ -493,22 +806,26 @@ function MobileMenuCard({
         </div>
       </div>
 
-      {/* Favorite button */}
+      {/* Add button — pinned to bottom-right, doesn't fight the card's tap-to-open. */}
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onFavorite(item.id);
+          onAdd();
         }}
-        className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white-warm/90 backdrop-blur-sm shadow-sm active:scale-90 transition-transform"
-        aria-label={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+        className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-gold text-brown text-xs font-bold shadow-md shadow-gold/20 active:scale-95 transition-transform hover:bg-gold/90"
+        aria-label={`Ajouter ${item.name} au panier`}
       >
-        {isFavorite ? (
-          <span className="text-red text-base">❤️</span>
-        ) : (
-          <svg className="w-4 h-4 text-brown-light/60" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 016.364 0L12 7.636l1.318-1.318a4.5 4.5 0 116.364 6.364L12 20.364l-7.682-7.682a4.5 4.5 0 010-6.364z" />
-          </svg>
-        )}
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+        <span>Ajouter</span>
       </button>
     </article>
   );
@@ -519,14 +836,12 @@ function MobileMenuCard({
    ═══════════════════════════════════════════════════════════ */
 function DetailModal({
   item,
-  isFavorite,
-  onFavorite,
   onClose,
+  onAdd,
 }: {
   item: MenuItem;
-  isFavorite: boolean;
-  onFavorite: (id: string) => void;
   onClose: () => void;
+  onAdd: () => void;
 }) {
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -582,7 +897,6 @@ function DetailModal({
               className="object-cover"
               priority
             />
-            {/* Close button */}
             <button
               onClick={onClose}
               className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm text-white-warm flex items-center justify-center active:scale-90 transition-transform"
@@ -652,7 +966,10 @@ function DetailModal({
           {/* Allergens info */}
           <div className="bg-white-warm rounded-xl p-4 mb-5 border border-terracotta/15">
             <p className="text-xs text-brown-light/80 leading-relaxed">
-              <strong className="text-brown">Allergènes :</strong> demandez la liste complète à votre serveur. Nous cuisinons dans un environnement où gluten, lactose, œufs et fruits à coque peuvent être présents.
+              <strong className="text-brown">Allergènes :</strong> demandez la
+              liste complète à votre serveur. Nous cuisinons dans un
+              environnement où gluten, lactose, œufs et fruits à coque peuvent
+              être présents.
             </p>
           </div>
         </div>
@@ -660,34 +977,534 @@ function DetailModal({
         {/* Fixed action bar */}
         <div className="fixed bottom-0 left-0 right-0 bg-cream/95 backdrop-blur-lg border-t border-terracotta/20 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex gap-3">
           <button
-            onClick={() => onFavorite(item.id)}
-            className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center border-2 transition-colors active:scale-95 ${
-              isFavorite
-                ? "bg-red text-white-warm border-red"
-                : "bg-white-warm border-terracotta/20 text-brown-light"
-            }`}
-            aria-label={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
-          >
-            {isFavorite ? "❤️" : "🤍"}
-          </button>
-          <button
             onClick={share}
             className="flex-shrink-0 w-12 h-12 rounded-full bg-white-warm border-2 border-terracotta/20 text-brown-light flex items-center justify-center active:scale-95 transition-transform"
             aria-label="Partager"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+              />
             </svg>
           </button>
           <button
-            onClick={onClose}
-            className="flex-1 bg-brown hover:bg-brown/90 text-cream font-bold py-3 rounded-full transition-colors active:scale-[0.98]"
+            onClick={onAdd}
+            className="flex-1 bg-gold hover:bg-gold/90 text-brown font-bold py-3 rounded-full transition-colors active:scale-[0.98] inline-flex items-center justify-center gap-2"
           >
-            Fermer
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            Ajouter au panier
           </button>
         </div>
       </motion.div>
     </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BOTTOM SHEET FILTERS
+   ═══════════════════════════════════════════════════════════ */
+function BottomSheetFilters({
+  activeFilter,
+  onChange,
+  onClose,
+}: {
+  activeFilter: DietaryTag | "all";
+  onChange: (f: DietaryTag | "all") => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Filtres"
+      >
+        <div className="w-10 h-1 rounded-full bg-brown/20 mx-auto mb-5" />
+
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown">
+            Filtrer la carte
+          </h3>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 rounded-full bg-white-warm text-brown-light flex items-center justify-center active:scale-90 transition-transform"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          {FILTERS.map((f) => {
+            const active = activeFilter === f.key;
+            return (
+              <button
+                key={f.key}
+                onClick={() => onChange(f.key)}
+                className={`flex items-center gap-2.5 p-4 rounded-2xl text-sm font-bold border transition-all active:scale-95 ${
+                  active
+                    ? "bg-brown text-cream border-brown shadow-lg shadow-brown/20"
+                    : "bg-white-warm text-brown border-terracotta/20 hover:border-gold"
+                }`}
+              >
+                <span className="text-2xl">{f.icon}</span>
+                <span>{f.label}</span>
+                {active && <span className="ml-auto text-gold-light">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="text-xs text-brown-light/70 text-center pt-2">
+          Les filtres sont cumulables avec la recherche.
+        </p>
+      </motion.div>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CART DRAWER
+   ═══════════════════════════════════════════════════════════ */
+function CartDrawer({
+  lines,
+  subtotal,
+  tax,
+  total,
+  tableNumber,
+  flashLineId,
+  submitState,
+  onClose,
+  onInc,
+  onDec,
+  onRemove,
+  onSubmit,
+}: {
+  lines: CartLine[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  tableNumber?: string;
+  flashLineId: string | null;
+  submitState: SubmitState;
+  onClose: () => void;
+  onInc: (line_id: string) => void;
+  onDec: (line_id: string) => void;
+  onRemove: (line_id: string) => void;
+  onSubmit: () => void;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  const sending = submitState.kind === "sending";
+  const success = submitState.kind === "success";
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={sending ? undefined : onClose}
+        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl max-h-[92vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Votre panier"
+      >
+        {/* Drag handle */}
+        <div className="pt-2 pb-1 flex justify-center">
+          <div className="w-10 h-1 rounded-full bg-brown/20" />
+        </div>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-3 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-widest text-gold font-bold">
+              Votre panier
+            </p>
+            <h3 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown">
+              {lines.length === 0
+                ? "Panier vide"
+                : `${lines.length} ${lines.length > 1 ? "plats" : "plat"}`}
+              {tableNumber && !success && (
+                <span className="text-sm font-normal text-brown-light ml-2">
+                  · Table #{tableNumber}
+                </span>
+              )}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={sending}
+            className="w-9 h-9 rounded-full bg-white-warm text-brown-light flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4">
+          {success ? (
+            <SuccessState tableNumber={tableNumber} />
+          ) : lines.length === 0 ? (
+            <EmptyState onClose={onClose} />
+          ) : (
+            <ul className="space-y-3">
+              <AnimatePresence initial={false}>
+                {lines.map((line) => (
+                  <CartRow
+                    key={line.line_id}
+                    line={line}
+                    flashing={flashLineId === line.line_id}
+                    disabled={sending}
+                    onInc={() => onInc(line.line_id)}
+                    onDec={() => onDec(line.line_id)}
+                    onRemove={() => onRemove(line.line_id)}
+                    reduced={!!prefersReducedMotion}
+                  />
+                ))}
+              </AnimatePresence>
+            </ul>
+          )}
+
+          {submitState.kind === "error" && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 p-3 rounded-xl bg-red/10 border border-red/30 text-sm text-red"
+            >
+              {submitState.message}
+            </motion.div>
+          )}
+        </div>
+
+        {/* Footer — totals + CTA (hidden on success/empty) */}
+        {!success && lines.length > 0 && (
+          <div className="border-t border-terracotta/15 bg-white-warm px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-brown-light">Sous-total</span>
+              <span className="tabular-nums text-brown">
+                {formatCents(subtotal)}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-brown-light">TVA 10&nbsp;%</span>
+              <span className="tabular-nums text-brown">{formatCents(tax)}</span>
+            </div>
+            <div className="flex justify-between items-baseline pt-2 border-t border-terracotta/20">
+              <span className="text-base font-bold text-brown">Total</span>
+              <span className="font-[family-name:var(--font-display)] text-2xl font-black text-brown tabular-nums">
+                {formatCents(total)}
+              </span>
+            </div>
+
+            <button
+              onClick={onSubmit}
+              disabled={sending || !tableNumber}
+              className="w-full h-14 rounded-2xl bg-red text-white-warm font-bold text-base tracking-wide shadow-lg shadow-red/30 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              {sending ? (
+                <>
+                  <motion.span
+                    animate={
+                      prefersReducedMotion ? undefined : { rotate: 360 }
+                    }
+                    transition={{
+                      repeat: Infinity,
+                      ease: "linear",
+                      duration: 0.9,
+                    }}
+                    className="inline-block w-4 h-4 border-2 border-white-warm/40 border-t-white-warm rounded-full"
+                  />
+                  Envoi en cours…
+                </>
+              ) : !tableNumber ? (
+                "Indiquez votre numéro de table"
+              ) : (
+                <>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 12l5 5L20 7"
+                    />
+                  </svg>
+                  Envoyer ma commande
+                </>
+              )}
+            </button>
+
+            <p className="text-[11px] text-center text-brown-light/70 leading-relaxed">
+              Votre serveur validera la commande avant qu&apos;elle parte en
+              cuisine.
+            </p>
+          </div>
+        )}
+      </motion.div>
+    </>
+  );
+}
+
+function CartRow({
+  line,
+  flashing,
+  disabled,
+  onInc,
+  onDec,
+  onRemove,
+  reduced,
+}: {
+  line: CartLine;
+  flashing: boolean;
+  disabled: boolean;
+  onInc: () => void;
+  onDec: () => void;
+  onRemove: () => void;
+  reduced: boolean;
+}) {
+  return (
+    <motion.li
+      layout={!reduced}
+      initial={reduced ? false : { opacity: 0, y: 8 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        backgroundColor: flashing
+          ? "rgba(184, 146, 47, 0.18)"
+          : "rgba(255, 251, 245, 1)",
+      }}
+      exit={reduced ? { opacity: 0 } : { opacity: 0, x: 40, height: 0 }}
+      transition={{ duration: 0.22 }}
+      className="bg-white-warm border border-terracotta/15 rounded-2xl p-3 relative overflow-hidden"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="font-[family-name:var(--font-display)] font-bold text-brown truncate">
+              {line.menu_item_name}
+            </p>
+            <p className="text-sm font-bold text-brown tabular-nums whitespace-nowrap">
+              {formatCents(line.price_cents * line.quantity)}
+            </p>
+          </div>
+          <p className="text-[11px] text-brown-light/70 tabular-nums mt-0.5">
+            {formatCents(line.price_cents)} / unité
+          </p>
+          {line.modifiers && line.modifiers.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {line.modifiers.map((m) => (
+                <span
+                  key={m}
+                  className="text-[10px] font-medium px-2 py-0.5 rounded bg-gold/15 text-gold"
+                >
+                  {m}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="mt-3 flex items-center gap-2">
+        <div className="flex items-center gap-1 bg-cream border border-terracotta/15 rounded-full">
+          <button
+            onClick={onDec}
+            disabled={disabled}
+            aria-label="Réduire la quantité"
+            className="w-9 h-9 rounded-full hover:bg-brown/10 text-brown active:scale-90 transition disabled:opacity-40"
+          >
+            −
+          </button>
+          <span className="w-7 text-center text-sm font-bold tabular-nums text-brown">
+            {line.quantity}
+          </span>
+          <button
+            onClick={onInc}
+            disabled={disabled || line.quantity >= 20}
+            aria-label="Augmenter la quantité"
+            className="w-9 h-9 rounded-full hover:bg-brown/10 text-brown active:scale-90 transition disabled:opacity-40"
+          >
+            +
+          </button>
+        </div>
+        <button
+          onClick={onRemove}
+          disabled={disabled}
+          aria-label={`Retirer ${line.menu_item_name} du panier`}
+          className="ml-auto w-9 h-9 rounded-full text-brown-light hover:text-red hover:bg-red/10 active:scale-90 transition disabled:opacity-40"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            className="w-4 h-4 mx-auto"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 7h16M9 7V4h6v3M6 7l1.4 13a2 2 0 0 0 2 1.8h5.2a2 2 0 0 0 2-1.8L18 7"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    </motion.li>
+  );
+}
+
+function EmptyState({ onClose }: { onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="py-10 text-center"
+    >
+      <div className="mx-auto w-20 h-20 rounded-full bg-gold/10 flex items-center justify-center mb-4">
+        <svg
+          className="w-10 h-10 text-gold"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.6}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+          />
+        </svg>
+      </div>
+      <p className="font-[family-name:var(--font-display)] text-lg font-bold text-brown mb-1">
+        Votre panier est vide
+      </p>
+      <p className="text-sm text-brown-light leading-relaxed mb-6 max-w-xs mx-auto">
+        Parcourez la carte et appuyez sur <strong>« Ajouter »</strong> sur les
+        plats qui vous tentent.
+      </p>
+      <button
+        onClick={onClose}
+        className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-brown text-cream text-sm font-bold active:scale-95 transition-transform"
+      >
+        Voir la carte
+      </button>
+    </motion.div>
+  );
+}
+
+function SuccessState({ tableNumber }: { tableNumber?: string }) {
+  const prefersReducedMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: prefersReducedMotion ? 1 : 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="py-12 text-center"
+    >
+      <motion.div
+        initial={prefersReducedMotion ? false : { scale: 0, rotate: -30 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 18, delay: 0.05 }}
+        className="mx-auto w-24 h-24 rounded-full bg-gold flex items-center justify-center mb-5 shadow-xl shadow-gold/30"
+      >
+        <svg
+          className="w-12 h-12 text-brown"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={3}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <motion.path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 12l5 5L20 7"
+            initial={prefersReducedMotion ? false : { pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 0.4, delay: 0.2, ease: "easeOut" }}
+          />
+        </svg>
+      </motion.div>
+      <motion.p
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35 }}
+        className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown mb-2"
+      >
+        Commande envoyée !
+      </motion.p>
+      <motion.p
+        initial={prefersReducedMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        className="text-brown-light text-sm leading-relaxed max-w-xs mx-auto"
+      >
+        {tableNumber
+          ? `Votre serveur va valider votre commande pour la table #${tableNumber} dans un instant.`
+          : "Votre serveur va valider votre commande dans un instant."}
+      </motion.p>
+    </motion.div>
   );
 }
 
@@ -723,7 +1540,7 @@ function CallWaiterModal({
       return;
     }
 
-    /* Fire-and-forget POST. We show confirmation regardless — don't bother the user with errors. */
+    /* Fire-and-forget POST. We show confirmation regardless. */
     try {
       await fetch("/api/waiter", {
         method: "POST",
@@ -865,7 +1682,8 @@ function Onboarding({
             transition={{ delay: 0.5 }}
             className="text-cream/70 text-sm mb-2"
           >
-            Table <span className="font-bold text-gold-light">#{tableNumber}</span>
+            Table{" "}
+            <span className="font-bold text-gold-light">#{tableNumber}</span>
           </motion.p>
         )}
         <motion.p
@@ -874,8 +1692,9 @@ function Onboarding({
           transition={{ delay: 0.6 }}
           className="text-cream/80 text-sm leading-relaxed mb-10"
         >
-          Découvrez notre carte de <strong className="text-gold-light">{totalItems} plats</strong>,
-          filtrez selon vos envies, et appelez-nous en un clic.
+          Découvrez <strong className="text-gold-light">{totalItems} plats</strong>,
+          commandez directement depuis votre téléphone, appelez le serveur en
+          un clic.
         </motion.p>
         <motion.button
           initial={{ opacity: 0, y: 20 }}
@@ -937,8 +1756,8 @@ function TablePrompt({
             Quelle est votre numéro de table ?
           </h3>
           <p className="text-brown-light text-sm leading-relaxed">
-            Pour nous permettre de vous servir plus vite. Vous pouvez ignorer
-            cette étape.
+            Indispensable pour passer commande depuis votre téléphone. Vous
+            pouvez ignorer si vous consultez seulement la carte.
           </p>
         </div>
 
@@ -966,7 +1785,7 @@ function TablePrompt({
             onClick={onSkip}
             className="w-full text-center text-xs text-brown-light py-2 hover:text-brown transition-colors"
           >
-            Pas de numéro de table → Continuer
+            Continuer sans numéro de table
           </button>
         </form>
       </motion.div>

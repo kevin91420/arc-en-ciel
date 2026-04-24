@@ -9,6 +9,7 @@ import { OliveBranch } from "@/components/Decorations";
 
 /* ═══════════════════════════════════════════════════════════
    LA CARTE — Page éditoriale magazine culinaire
+   Mini-hero pour accès rapide aux plats
    ═══════════════════════════════════════════════════════════ */
 
 const FILTERS: { key: DietaryTag | "all"; label: string }[] = [
@@ -50,80 +51,73 @@ export default function CartePage() {
     return () => observer.disconnect();
   }, []);
 
-  const handlePrint = () => window.print();
-
   return (
     <div className="bg-cream min-h-screen bg-paper">
-      {/* ═══ HERO ═══ */}
-      <header className="relative pt-24 pb-16 sm:pt-32 sm:pb-20 overflow-hidden print:pt-8 print:pb-6">
-        {/* Back link */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-8 print:hidden">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-brown-light hover:text-red transition-colors text-sm font-medium group"
-          >
-            <svg
-              className="w-4 h-4 group-hover:-translate-x-1 transition-transform"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
+      {/* ═══ MINI HERO (≈ 22vh, condensé) ═══ */}
+      <header className="relative pt-6 pb-5 sm:pt-8 sm:pb-6 overflow-hidden border-b border-terracotta/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          {/* Back link — discret, en haut à gauche */}
+          <div className="mb-3 sm:mb-4">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-brown-light/80 hover:text-red transition-colors text-xs font-medium group"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Retour au site
-          </Link>
-        </div>
+              <svg
+                className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Retour
+            </Link>
+          </div>
 
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center relative">
-          <OliveBranch className="absolute -top-4 left-8 w-24 text-terracotta-deep opacity-25 -rotate-12 hidden md:block print:hidden" />
-          <OliveBranch className="absolute -top-4 right-8 w-24 text-terracotta-deep opacity-25 rotate-12 hidden md:block print:hidden" />
+          {/* Titre compact sur une ligne */}
+          <div className="relative flex flex-col items-center text-center">
+            <OliveBranch className="absolute top-1/2 -translate-y-1/2 left-0 w-14 text-terracotta-deep/20 -rotate-12 hidden lg:block" />
+            <OliveBranch className="absolute top-1/2 -translate-y-1/2 right-0 w-14 text-terracotta-deep/20 rotate-12 hidden lg:block" />
 
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="font-[family-name:var(--font-script)] text-gold text-2xl sm:text-3xl mb-4"
-          >
-            L&apos;Arc en Ciel
-          </motion.p>
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="font-[family-name:var(--font-display)] text-brown text-5xl sm:text-7xl lg:text-8xl font-bold leading-none tracking-tight mb-6"
-          >
-            La <span className="italic text-terracotta-deep">Carte</span>
-          </motion.h1>
-          <motion.div
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="w-24 h-[2px] bg-gold mx-auto mb-8"
-          />
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="text-brown-light text-base sm:text-lg max-w-xl mx-auto leading-relaxed"
-          >
-            Pizzas au feu de bois, grillades halal, pâtes fraîches, desserts maison — une cuisine
-            méditerranéenne généreuse, préparée avec amour chaque jour.
-          </motion.p>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4"
+            >
+              <span className="font-[family-name:var(--font-script)] text-gold text-lg sm:text-xl leading-none">
+                L&apos;Arc en Ciel
+              </span>
+              <span className="hidden sm:inline-block w-px h-6 bg-gold/40" aria-hidden="true" />
+              <h1 className="font-[family-name:var(--font-display)] text-brown text-3xl sm:text-4xl font-bold leading-none tracking-tight">
+                La <span className="italic text-terracotta-deep">Carte</span>
+              </h1>
+            </motion.div>
+
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+              className="text-brown-light text-xs sm:text-sm max-w-xl mx-auto leading-relaxed mt-2"
+            >
+              Pizzas au feu de bois, grillades halal, pâtes fraîches, desserts maison.
+            </motion.p>
+          </div>
         </div>
       </header>
 
-      {/* ═══ STICKY NAV + FILTERS ═══ */}
-      <div className="sticky top-0 z-40 bg-cream/95 backdrop-blur-md border-y border-terracotta/15 shadow-sm print:hidden">
+      {/* ═══ STICKY NAV + FILTERS (immédiatement visible) ═══ */}
+      <div className="sticky top-0 z-40 bg-cream/95 backdrop-blur-md border-b border-terracotta/15 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           {/* Categories nav */}
           <nav className="overflow-x-auto scrollbar-hide" aria-label="Sections de la carte">
-            <ul className="flex items-center gap-1 sm:gap-2 py-3 min-w-max">
+            <ul className="flex items-center gap-1 sm:gap-2 py-2.5 min-w-max">
               {CARTE.map((cat) => (
                 <li key={cat.id}>
                   <a
                     href={`#${cat.id}`}
-                    className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
+                    className={`inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
                       activeSection === cat.id
                         ? "bg-brown text-cream shadow-md"
                         : "text-brown-light hover:text-brown hover:bg-terracotta/10"
@@ -137,42 +131,30 @@ export default function CartePage() {
             </ul>
           </nav>
 
-          {/* Filters + Print */}
-          <div className="flex items-center justify-between gap-4 py-3 border-t border-terracotta/10">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-              <span className="text-xs uppercase tracking-wider text-brown-light font-semibold mr-2 hidden sm:inline">
-                Filtrer :
-              </span>
-              {FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 border ${
-                    filter === f.key
-                      ? "bg-gold text-brown border-gold"
-                      : "bg-transparent text-brown-light border-terracotta/30 hover:border-gold hover:text-brown"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={handlePrint}
-              className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-brown-light hover:text-red transition-colors"
-              aria-label="Imprimer la carte"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-              </svg>
-              Imprimer
-            </button>
+          {/* Filters */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-2 border-t border-terracotta/10">
+            <span className="text-[10px] uppercase tracking-wider text-brown-light font-semibold mr-2 hidden sm:inline">
+              Filtrer :
+            </span>
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 border ${
+                  filter === f.key
+                    ? "bg-gold text-brown border-gold"
+                    : "bg-transparent text-brown-light border-terracotta/30 hover:border-gold hover:text-brown"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {/* ═══ CATEGORIES ═══ */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-24 print:py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 sm:pt-14 pb-16 sm:pb-24">
         {filteredCarte.length === 0 ? (
           <div className="text-center py-24">
             <p className="text-brown-light text-lg">Aucun plat ne correspond à ce filtre.</p>
@@ -182,11 +164,11 @@ export default function CartePage() {
             <section
               key={category.id}
               id={category.id}
-              className="mb-24 sm:mb-32 scroll-mt-32 print:mb-12 print:break-inside-avoid"
+              className="mb-24 sm:mb-32 scroll-mt-36"
               aria-labelledby={`heading-${category.id}`}
             >
               {/* Category header — editorial style */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-12 sm:mb-16 items-end print:mb-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-12 sm:mb-16 items-end">
                 <div className="lg:col-span-4">
                   <motion.span
                     initial={{ opacity: 0 }}
@@ -230,7 +212,7 @@ export default function CartePage() {
               </div>
 
               {/* Items grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 lg:gap-x-16 gap-y-10 sm:gap-y-14 print:grid-cols-2 print:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 lg:gap-x-16 gap-y-10 sm:gap-y-14">
                 {category.items.map((item, i) => (
                   <MenuItemCard key={item.id} item={item} index={i} reversed={i % 2 === 1} />
                 ))}
@@ -238,7 +220,7 @@ export default function CartePage() {
 
               {/* Decorative divider between categories */}
               {catIdx < filteredCarte.length - 1 && (
-                <div className="flex items-center justify-center mt-20 sm:mt-24 print:mt-8 print:hidden">
+                <div className="flex items-center justify-center mt-20 sm:mt-24">
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
                   <OliveBranch className="w-20 text-terracotta-deep/40 mx-6" />
                   <div className="flex-1 h-px bg-gradient-to-l from-transparent via-gold/30 to-transparent" />
@@ -250,7 +232,7 @@ export default function CartePage() {
       </main>
 
       {/* ═══ FOOTER CTA ═══ */}
-      <footer className="bg-brown text-cream py-16 sm:py-20 print:hidden">
+      <footer className="bg-brown text-cream py-16 sm:py-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <p className="font-[family-name:var(--font-script)] text-gold-light text-2xl mb-3">
             Une envie ?
@@ -302,25 +284,25 @@ function MenuItemCard({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
-      className="group relative print:break-inside-avoid"
+      className="group relative"
     >
       <div className={`flex flex-col gap-5 ${reversed ? "md:flex-col" : "md:flex-col"}`}>
         {/* Image */}
         {item.image && (
-          <div className="relative aspect-[4/3] overflow-hidden rounded-sm bg-white-warm print:aspect-[3/2]">
+          <div className="relative aspect-[4/3] overflow-hidden rounded-sm bg-white-warm">
             <Image
               src={item.image}
               alt={`${item.name} — ${item.description}`}
               fill
               sizes="(max-width: 768px) 100vw, 50vw"
-              className="object-cover transition-all duration-700 ease-out group-hover:scale-[1.05] print:scale-100"
+              className="object-cover transition-all duration-700 ease-out group-hover:scale-[1.05]"
               loading="lazy"
             />
             {/* Warm overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-brown/10 via-transparent to-transparent pointer-events-none" />
 
             {/* Badges */}
-            <div className="absolute top-3 left-3 flex flex-col gap-2 print:hidden">
+            <div className="absolute top-3 left-3 flex flex-col gap-2">
               {item.signature && (
                 <span className="inline-flex items-center gap-1 bg-brown/90 backdrop-blur-sm text-gold-light text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full">
                   ★ Signature

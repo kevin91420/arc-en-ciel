@@ -103,6 +103,10 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/admin/auth")) return NextResponse.next();
   if (pathname.startsWith("/api/staff/auth")) return NextResponse.next();
 
+  // Mobile / QR-menu public API (customer submits their cart from /m/carte).
+  // Has its own IP rate limiting inside the route handler.
+  if (pathname.startsWith("/api/m/")) return NextResponse.next();
+
   /* ─── Cookie lookups ──────────────────────────────────── */
   const adminCookie = request.cookies.get(ADMIN_COOKIE)?.value;
   const adminAuthed =

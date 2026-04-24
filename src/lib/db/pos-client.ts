@@ -14,6 +14,7 @@ import type {
   CreateOrderPayload,
   AddItemsPayload,
   PaymentMethod,
+  Station,
 } from "./pos-types";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -237,6 +238,91 @@ export async function updateItemStatus(
 }
 
 /**
+ * Update editable fields on a pending order item.
+ *
+ * Business rule: quantity / modifiers / notes can ONLY be edited while the
+ * item is still `pending` (i.e. not yet fired to the kitchen). Once the chef
+ * has started working on it, the line is immutable from the server side —
+ * any further change must be a new line.
+ *
+ * `status` transitions remain allowed at any point (e.g. cancel a cooking
+ * item) and fall through to the same code path as {@link updateItemStatus}.
+ *
+ * Throws `ItemNotPendingError` if the caller asks to edit quantity /
+ * modifiers / notes on a non-pending item.
+ */
+export class ItemNotPendingError extends Error {
+  constructor(public readonly currentStatus: OrderItem["status"]) {
+    super(`Item is ${currentStatus}, not pending — cannot edit quantity/modifiers/notes`);
+    this.name = "ItemNotPendingError";
+  }
+}
+
+export interface UpdateItemPayload {
+  quantity?: number;
+  modifiers?: string[];
+  notes?: string | null;
+  status?: OrderItem["status"];
+}
+
+export async function updateItem(
+  itemId: string,
+  updates: UpdateItemPayload
+): Promise<OrderItem | null> {
+  if (!USE_SUPABASE) return null;
+
+  const wantsMutableFields =
+    updates.quantity !== undefined ||
+    updates.modifiers !== undefined ||
+    updates.notes !== undefined;
+
+  /* Read the current item so we can (a) enforce the pending guard and
+   * (b) know which order to recompute at the end. */
+  const [current] = await sb<OrderItem[]>(
+    `order_items?select=*&id=eq.${itemId}&limit=1`
+  );
+  if (!current) return null;
+
+  if (wantsMutableFields && current.status !== "pending") {
+    throw new ItemNotPendingError(current.status);
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (updates.quantity !== undefined) {
+    const q = Math.floor(updates.quantity);
+    if (!Number.isInteger(q) || q < 1 || q > 50) {
+      throw new Error("quantity must be an integer between 1 and 50");
+    }
+    patch.quantity = q;
+  }
+  if (updates.modifiers !== undefined) {
+    patch.modifiers = updates.modifiers;
+  }
+  if (updates.notes !== undefined) {
+    patch.notes = updates.notes;
+  }
+  if (updates.status !== undefined) {
+    patch.status = updates.status;
+    if (updates.status === "cooking") patch.fired_at = new Date().toISOString();
+    if (updates.status === "ready") patch.ready_at = new Date().toISOString();
+    if (updates.status === "served") patch.served_at = new Date().toISOString();
+  }
+
+  if (Object.keys(patch).length === 0) return current;
+
+  const [updated] = await sb<OrderItem[]>(`order_items?id=eq.${itemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+  /* Totals only move when quantity or status (cancellations) change; we
+   * recompute unconditionally since it's cheap and keeps the invariant. */
+  await recomputeOrderTotals(current.order_id);
+
+  return updated ?? current;
+}
+
+/**
  * Fire the order → mark all pending items as cooking.
  */
 export async function fireOrder(orderId: string): Promise<OrderWithItems> {
@@ -313,7 +399,15 @@ async function recomputeOrderTotals(orderId: string) {
    KDS — Kitchen tickets
    ═══════════════════════════════════════════════════════════ */
 
-export async function getKitchenTickets(): Promise<KitchenTicket[]> {
+/**
+ * List all active kitchen tickets. When `filter.station` is set, items are
+ * filtered server-side to the given station AND only tickets that have at
+ * least one item for that station are returned. This is the core guardrail
+ * that prevents a pizzaiolo from ever seeing / touching a grill item.
+ */
+export async function getKitchenTickets(
+  filter: { station?: Station } = {}
+): Promise<KitchenTicket[]> {
   if (!USE_SUPABASE) return [];
 
   /* All orders currently being prepared */
@@ -323,8 +417,11 @@ export async function getKitchenTickets(): Promise<KitchenTicket[]> {
   if (orders.length === 0) return [];
 
   const orderIds = orders.map((o) => o.id);
+  const stationClause = filter.station
+    ? `&station=eq.${encodeURIComponent(filter.station)}`
+    : "";
   const items = await sb<OrderItem[]>(
-    `order_items?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)&order=created_at.asc`
+    `order_items?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)${stationClause}&order=created_at.asc`
   );
 
   const staffIds = [...new Set(orders.map((o) => o.staff_id).filter(Boolean))] as string[];
@@ -358,6 +455,58 @@ export async function getKitchenTickets(): Promise<KitchenTicket[]> {
         staff_name: o.staff_id ? staffMap.get(o.staff_id) : undefined,
       };
     });
+}
+
+/**
+ * Fetch a single order_item (station guard helper for the PATCH route).
+ * Returns null if not found.
+ */
+export async function getOrderItem(itemId: string): Promise<OrderItem | null> {
+  if (!USE_SUPABASE) return null;
+  const [row] = await sb<OrderItem[]>(
+    `order_items?select=*&id=eq.${itemId}&limit=1`
+  );
+  return row ?? null;
+}
+
+/**
+ * Aggregated ticket counts per station — powers the station picker home page.
+ * An "active ticket for station X" = an order in fired/ready with at least
+ * one item in cooking/ready whose station === X.
+ */
+export async function getTicketCountsByStation(): Promise<
+  Record<Station, number>
+> {
+  const empty: Record<Station, number> = {
+    main: 0,
+    pizza: 0,
+    grill: 0,
+    cold: 0,
+    dessert: 0,
+    bar: 0,
+  };
+  if (!USE_SUPABASE) return empty;
+
+  const orders = await sb<Order[]>(
+    `orders?select=id&status=in.(fired,ready)`
+  );
+  if (orders.length === 0) return empty;
+
+  const orderIds = orders.map((o) => o.id);
+  const items = await sb<Pick<OrderItem, "order_id" | "station">[]>(
+    `order_items?select=order_id,station&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)`
+  );
+
+  /* Count DISTINCT order_id per station (one ticket = one card). */
+  const seen = new Map<Station, Set<string>>();
+  for (const it of items) {
+    if (!seen.has(it.station)) seen.set(it.station, new Set());
+    seen.get(it.station)!.add(it.order_id);
+  }
+
+  const out: Record<Station, number> = { ...empty };
+  for (const [st, set] of seen.entries()) out[st] = set.size;
+  return out;
 }
 
 /* ═══════════════════════════════════════════════════════════
