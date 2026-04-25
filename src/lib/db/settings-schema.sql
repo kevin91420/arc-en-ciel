@@ -56,6 +56,9 @@ create table if not exists restaurant_settings (
   -- TVA rate (percentage 0-100)
   tax_rate numeric(4, 2) default 10.00,
 
+  -- 86 list — menu_item ids temporarily out of stock (live propagation)
+  eighty_six_list text[] default array[]::text[],
+
   -- Tables (JSON array of TableConfig — white-label floor plan)
   tables jsonb default '[
     {"number":1,"label":"T1","capacity":4,"zone":"Salle"},

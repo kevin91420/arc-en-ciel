@@ -17,11 +17,33 @@ type PageProps = {
   params: Promise<{ orderId: string }>;
 };
 
+/**
+ * Split a total into N equal shares (cents). When the total isn't perfectly
+ * divisible, the first share absorbs the rounding remainder so the sum still
+ * matches the original. Returns the per-share array.
+ */
+function computeSharesArray(totalCents: number, parts: number): number[] {
+  if (parts <= 1) return [totalCents];
+  const safeParts = Math.max(2, Math.min(20, Math.floor(parts)));
+  const base = Math.floor(totalCents / safeParts);
+  const remainder = totalCents - base * safeParts;
+  return Array.from({ length: safeParts }, (_, i) =>
+    i === 0 ? base + remainder : base
+  );
+}
+
+function computePerShare(totalCents: number, parts: number): number {
+  /* When the split isn't perfect, we display the *higher* share (the one that
+   * absorbs the remainder) — clearer than rounding silently. */
+  return computeSharesArray(totalCents, parts)[0];
+}
+
 export default function AdditionPage({ params }: PageProps) {
   const { orderId } = use(params);
   const [order, setOrder] = useState<OrderWithItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [splitCount, setSplitCount] = useState(1);
 
   useEffect(() => {
     if (!orderId) return;
@@ -34,7 +56,11 @@ export default function AdditionPage({ params }: PageProps) {
         });
         if (!res.ok) throw new Error("Commande introuvable");
         const data = (await res.json()) as OrderWithItems;
-        if (!cancelled) setOrder(data);
+        if (!cancelled) {
+          setOrder(data);
+          /* Seed split count with the number of guests for dine-in. */
+          setSplitCount(Math.max(1, data.guest_count || 1));
+        }
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       } finally {
@@ -76,10 +102,15 @@ export default function AdditionPage({ params }: PageProps) {
   });
 
   const activeItems = order.items.filter((i) => i.status !== "cancelled");
+  const grandTotal = order.total_cents + order.tip_cents;
+  const shares = computeSharesArray(grandTotal, splitCount);
+  const perShare = shares[0];
+  const splitActive = splitCount > 1;
+  const sharesEqual = shares.every((s) => s === shares[0]);
 
   return (
     <div className="min-h-[calc(100vh-57px)] bg-cream bg-noise">
-      {/* Print styles — only the receipt prints. */}
+      {/* Print styles — only the receipts print. */}
       <style>{`
         @media print {
           @page { margin: 10mm; }
@@ -91,11 +122,14 @@ export default function AdditionPage({ params }: PageProps) {
             max-width: 100% !important;
             margin: 0 !important;
           }
+          .receipt + .receipt {
+            page-break-before: always;
+          }
         }
       `}</style>
 
       {/* Action bar — hidden on print */}
-      <div className="no-print px-4 md:px-8 py-4 flex items-center justify-between gap-3 bg-white-warm border-b border-terracotta/30">
+      <div className="no-print px-4 md:px-8 py-4 flex flex-wrap items-center justify-between gap-3 bg-white-warm border-b border-terracotta/30">
         <Link
           href={
             order.table_number
@@ -116,7 +150,49 @@ export default function AdditionPage({ params }: PageProps) {
           Retour à la commande
         </Link>
 
-        <div className="flex items-center gap-2">
+        {/* Split control */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="inline-flex items-center gap-2 rounded-full bg-cream border border-terracotta/30 px-3 py-1.5">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold">
+              Couverts
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setSplitCount((n) => Math.max(1, n - 1))
+              }
+              disabled={splitCount <= 1}
+              aria-label="Diminuer le nombre de parts"
+              className="w-7 h-7 rounded-full text-brown font-bold hover:bg-brown/10 disabled:opacity-40"
+            >
+              −
+            </button>
+            <span className="w-8 text-center text-base font-bold text-brown tabular-nums">
+              {splitCount}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setSplitCount((n) => Math.min(20, n + 1))
+              }
+              aria-label="Augmenter le nombre de parts"
+              className="w-7 h-7 rounded-full text-brown font-bold hover:bg-brown/10"
+            >
+              +
+            </button>
+          </div>
+
+          {splitActive && (
+            <div className="inline-flex items-baseline gap-2 px-4 py-2 rounded-xl bg-gold/15 border border-gold/30">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold">
+                Par personne
+              </span>
+              <span className="font-[family-name:var(--font-display)] text-xl font-bold text-brown tabular-nums">
+                {formatCents(perShare)}
+              </span>
+            </div>
+          )}
+
           <button
             onClick={() => window.print()}
             className="h-10 px-4 rounded-lg bg-brown text-cream text-sm font-semibold hover:bg-brown-light transition inline-flex items-center gap-2"
@@ -130,13 +206,19 @@ export default function AdditionPage({ params }: PageProps) {
                 strokeLinejoin="round"
               />
             </svg>
-            Imprimer
+            {splitActive
+              ? `Imprimer ${splitCount} additions`
+              : "Imprimer"}
           </button>
         </div>
       </div>
 
-      {/* Receipt */}
-      <div className="receipt max-w-md mx-auto my-6 md:my-10 bg-white-warm border border-terracotta/40 rounded-2xl shadow-xl shadow-brown/10 px-6 py-8 font-[family-name:var(--font-body)]">
+      {/* Receipts — one card on screen if split=1, N stacked + page-break for print. */}
+      {shares.map((shareCents, shareIdx) => (
+      <div
+        key={shareIdx}
+        className="receipt max-w-md mx-auto my-6 md:my-10 bg-white-warm border border-terracotta/40 rounded-2xl shadow-xl shadow-brown/10 px-6 py-8 font-[family-name:var(--font-body)]"
+      >
         {/* Header */}
         <div className="text-center">
           <p className="font-[family-name:var(--font-script)] text-gold-light text-2xl leading-none">
@@ -150,6 +232,11 @@ export default function AdditionPage({ params }: PageProps) {
             <br />
             01 23 45 67 89 · arc-en-ciel.fr
           </p>
+          {splitActive && (
+            <p className="mt-3 inline-block text-[10px] uppercase tracking-[0.22em] font-bold bg-brown text-cream px-3 py-1 rounded-full">
+              Part {shareIdx + 1} / {splitCount}
+            </p>
+          )}
           <div className="my-4 h-px bg-gradient-to-r from-transparent via-terracotta-deep to-transparent" />
         </div>
 
@@ -237,6 +324,27 @@ export default function AdditionPage({ params }: PageProps) {
               {formatCents(order.total_cents + order.tip_cents)}
             </span>
           </div>
+
+          {splitActive && (
+            <div className="mt-3 rounded-xl bg-gold/10 border border-gold/30 px-4 py-3">
+              <div className="flex justify-between items-baseline">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold">
+                  Votre part ({shareIdx + 1} / {splitCount})
+                </span>
+                <span className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown tabular-nums">
+                  {formatCents(shareCents)}
+                </span>
+              </div>
+              {!sharesEqual && (
+                <p className="mt-1 text-[10px] text-brown-light/80 italic leading-snug">
+                  Le total se partageant en {splitCount} parts non strictement
+                  égales, la première absorbe l&apos;arrondi (différence ≤ 1 ct
+                  par part).
+                </p>
+              )}
+            </div>
+          )}
+
           {order.payment_method && (
             <p className="text-xs text-brown-light text-right mt-1">
               Payée en{" "}
@@ -265,6 +373,7 @@ export default function AdditionPage({ params }: PageProps) {
           </p>
         </div>
       </div>
+      ))}
     </div>
   );
 }

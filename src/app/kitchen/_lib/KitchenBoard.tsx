@@ -590,6 +590,12 @@ function StationSwitcher({ current }: { current: StationKey }) {
    Ticket card
    ═══════════════════════════════════════════════════════════ */
 
+/* Threshold (ms) beyond which a second fire on the same order is considered
+ * an "add-on after fire" and the item gets the red-pulse treatment. 30s is
+ * long enough to ignore jitter (batch fire sends N PATCH calls back-to-back)
+ * while short enough that a legit add-on is flagged. */
+const LATE_FIRE_THRESHOLD_MS = 30_000;
+
 function TicketCard({
   ticket,
   nowTick,
@@ -609,6 +615,15 @@ function TicketCard({
       : nowTick;
     return Math.max(0, Math.floor((nowTick - firedAt) / 60000));
   }, [ticket.fired_at, nowTick]);
+
+  /* Earliest fired_at across the ticket's items — anything later than that
+   * + LATE_FIRE_THRESHOLD_MS is an add-on AFTER the original fire. */
+  const earliestFired = useMemo(() => {
+    const times = ticket.items
+      .map((i) => (i.fired_at ? new Date(i.fired_at).getTime() : null))
+      .filter((t): t is number => t !== null);
+    return times.length > 0 ? Math.min(...times) : null;
+  }, [ticket.items]);
 
   const urgent = elapsed >= 15;
   const warning = elapsed >= 10 && elapsed < 15;
@@ -743,13 +758,23 @@ function TicketCard({
       />
 
       <ul className="flex-1 space-y-2">
-        {ticket.items.map((item) => (
-          <KitchenItemRow
-            key={item.id}
-            item={item}
-            onTap={(next) => onItemTap(item, next, ticket.table_number ?? null)}
-          />
-        ))}
+        {ticket.items.map((item) => {
+          const firedMs = item.fired_at
+            ? new Date(item.fired_at).getTime()
+            : null;
+          const lateAdd =
+            firedMs !== null &&
+            earliestFired !== null &&
+            firedMs - earliestFired > LATE_FIRE_THRESHOLD_MS;
+          return (
+            <KitchenItemRow
+              key={item.id}
+              item={item}
+              lateAdd={lateAdd}
+              onTap={(next) => onItemTap(item, next, ticket.table_number ?? null)}
+            />
+          );
+        })}
       </ul>
 
       {ticket.notes && ticket.notes.trim().length > 0 && (
@@ -773,9 +798,11 @@ function TicketCard({
 
 function KitchenItemRow({
   item,
+  lateAdd,
   onTap,
 }: {
   item: OrderItem;
+  lateAdd?: boolean;
   onTap: (next: OrderItemStatus) => void;
 }) {
   const isCooking = item.status === "cooking";
@@ -788,16 +815,27 @@ function KitchenItemRow({
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 8 }}
+      className="relative"
     >
+      {lateAdd && !isReady && (
+        <motion.span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 rounded-xl ring-2 ring-red-400/70"
+          animate={{ opacity: [0.35, 1, 0.35] }}
+          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
       <button
         onClick={() => onTap(nextStatus)}
         className={[
-          "w-full text-left rounded-xl px-3 py-3 flex items-start gap-3 transition-colors active:scale-[0.985]",
+          "w-full text-left rounded-xl px-3 py-3 flex items-start gap-3 transition-colors active:scale-[0.985] relative",
           isReady
             ? "bg-gold/15 border border-gold/50"
-            : isCooking
-              ? "bg-cream/[0.04] border border-cream/10 hover:bg-cream/[0.07]"
-              : "bg-cream/[0.02] border border-cream/10",
+            : lateAdd
+              ? "bg-red-500/15 border border-red-500/50"
+              : isCooking
+                ? "bg-cream/[0.04] border border-cream/10 hover:bg-cream/[0.07]"
+                : "bg-cream/[0.02] border border-cream/10",
         ].join(" ")}
       >
         <span
@@ -823,9 +861,15 @@ function KitchenItemRow({
         </span>
 
         <span className="flex-1 min-w-0">
+          {lateAdd && !isReady && (
+            <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] font-black bg-red-500 text-cream px-1.5 py-0.5 rounded mr-1.5 align-middle">
+              <span aria-hidden>⚡</span>
+              Rajout
+            </span>
+          )}
           <span
             className={[
-              "font-[family-name:var(--font-display)] font-semibold leading-tight block",
+              "font-[family-name:var(--font-display)] font-semibold leading-tight inline",
               isReady ? "text-gold-light" : "text-cream",
               isReady ? "line-through decoration-gold/60" : "",
             ].join(" ")}

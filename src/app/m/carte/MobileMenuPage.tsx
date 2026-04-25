@@ -7,6 +7,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
 import { formatCents, parsePriceToCents } from "@/lib/format";
 import type { LoyaltyCard, LoyaltyConfig } from "@/lib/db/loyalty-types";
+import { useEightySixList } from "@/lib/hooks/useEightySixList";
 
 /* ═══════════════════════════════════════════════════════════
    MOBILE QR MENU — App-like experience for table diners.
@@ -138,6 +139,9 @@ export default function MobileMenuPage({
   const [loyalty, setLoyalty] = useState<LoyaltyState>({ kind: "idle" });
   const [loyaltyOpen, setLoyaltyOpen] = useState(false);
   const [loyaltyPostOrder, setLoyaltyPostOrder] = useState(false);
+
+  /* 86 list — polled every 20s and on visibility change. */
+  const eightySixSet = useEightySixList();
 
   /* Effective table number — URL param wins, otherwise use the stored one */
   const tableNumber = tableFromUrl || storedTable;
@@ -293,6 +297,7 @@ export default function MobileMenuPage({
     (item: MenuItem, categoryId: string, modifiers?: string[]) => {
       const priceCents = parsePriceToCents(item.price);
       if (priceCents <= 0) return;
+      if (eightySixSet.has(item.id)) return;
 
       const candidate = {
         menu_item_id: item.id,
@@ -328,7 +333,7 @@ export default function MobileMenuPage({
         return [...base, line];
       });
     },
-    []
+    [eightySixSet]
   );
 
   /* Clear the flash highlight after a beat. */
@@ -664,6 +669,7 @@ export default function MobileMenuPage({
                   <MobileMenuCard
                     key={item.id}
                     item={item}
+                    outOfStock={eightySixSet.has(item.id)}
                     onClick={() => setSelectedItem(item)}
                     onAdd={() => addToCart(item, category.id)}
                   />
@@ -747,8 +753,10 @@ export default function MobileMenuPage({
         {selectedItem && (
           <DetailModal
             item={selectedItem}
+            outOfStock={eightySixSet.has(selectedItem.id)}
             onClose={() => setSelectedItem(null)}
             onAdd={() => {
+              if (eightySixSet.has(selectedItem.id)) return;
               /* Find the category to infer station. */
               const cat = CARTE.find((c) =>
                 c.items.some((i) => i.id === selectedItem.id)
@@ -874,17 +882,24 @@ export default function MobileMenuPage({
    ═══════════════════════════════════════════════════════════ */
 function MobileMenuCard({
   item,
+  outOfStock,
   onClick,
   onAdd,
 }: {
   item: MenuItem;
+  outOfStock?: boolean;
   onClick: () => void;
   onAdd: () => void;
 }) {
   return (
     <article
       onClick={onClick}
-      className="relative flex gap-3 bg-white-warm rounded-2xl p-3 pb-12 shadow-sm shadow-brown/5 active:scale-[0.99] transition-transform cursor-pointer overflow-hidden"
+      className={[
+        "relative flex gap-3 bg-white-warm rounded-2xl p-3 pb-12 shadow-sm shadow-brown/5 transition-transform cursor-pointer overflow-hidden",
+        outOfStock
+          ? "opacity-60 saturate-50"
+          : "active:scale-[0.99]",
+      ].join(" ")}
     >
       {/* Image */}
       {item.image && (
@@ -940,27 +955,34 @@ function MobileMenuCard({
         </div>
       </div>
 
-      {/* Add button — pinned to bottom-right, doesn't fight the card's tap-to-open. */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onAdd();
-        }}
-        className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-gold text-brown text-xs font-bold shadow-md shadow-gold/20 active:scale-95 transition-transform hover:bg-gold/90"
-        aria-label={`Ajouter ${item.name} au panier`}
-      >
-        <svg
-          className="w-3.5 h-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          viewBox="0 0 24 24"
-          aria-hidden="true"
+      {/* Add button — or "Épuisé" badge when the item is 86'd. */}
+      {outOfStock ? (
+        <span className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-brown/20 text-brown text-[11px] font-bold uppercase tracking-wider border border-brown/30">
+          <span aria-hidden>🥲</span>
+          <span>Épuisé ce soir</span>
+        </span>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd();
+          }}
+          className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-gold text-brown text-xs font-bold shadow-md shadow-gold/20 active:scale-95 transition-transform hover:bg-gold/90"
+          aria-label={`Ajouter ${item.name} au panier`}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
-        <span>Ajouter</span>
-      </button>
+          <svg
+            className="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>Ajouter</span>
+        </button>
+      )}
     </article>
   );
 }
@@ -970,10 +992,12 @@ function MobileMenuCard({
    ═══════════════════════════════════════════════════════════ */
 function DetailModal({
   item,
+  outOfStock,
   onClose,
   onAdd,
 }: {
   item: MenuItem;
+  outOfStock?: boolean;
   onClose: () => void;
   onAdd: () => void;
 }) {
@@ -1131,7 +1155,13 @@ function DetailModal({
           </button>
           <button
             onClick={onAdd}
-            className="flex-1 bg-gold hover:bg-gold/90 text-brown font-bold py-3 rounded-full transition-colors active:scale-[0.98] inline-flex items-center justify-center gap-2"
+            disabled={Boolean(outOfStock)}
+            className={[
+              "flex-1 font-bold py-3 rounded-full transition-colors active:scale-[0.98] inline-flex items-center justify-center gap-2",
+              outOfStock
+                ? "bg-brown/10 text-brown/60 cursor-not-allowed"
+                : "bg-gold hover:bg-gold/90 text-brown",
+            ].join(" ")}
           >
             <svg
               className="w-4 h-4"
@@ -1144,10 +1174,10 @@ function DetailModal({
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M12 4v16m8-8H4"
+                d={outOfStock ? "M6 18L18 6M6 6l12 12" : "M12 4v16m8-8H4"}
               />
             </svg>
-            Ajouter au panier
+            {outOfStock ? "Épuisé ce soir" : "Ajouter au panier"}
           </button>
         </div>
       </motion.div>

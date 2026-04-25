@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { addItemsToOrder } from "@/lib/db/pos-client";
+import { getSettings } from "@/lib/db/settings-client";
 import type { AddItemsPayload, Station } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
@@ -103,6 +104,30 @@ export async function POST(
       { error: "Aucun item valide à ajouter" },
       { status: 400 }
     );
+  }
+
+  /* 86 guard — same defence in depth as /api/m/order. Allow the server to
+   * bypass via X-Force-86: true (rarely — e.g. VIP exception) if needed. */
+  if (req.headers.get("x-force-86") !== "true") {
+    try {
+      const settings = await getSettings();
+      const eightySix = new Set(settings.eighty_six_list ?? []);
+      const sold = items.filter((i) => eightySix.has(i.menu_item_id));
+      if (sold.length > 0) {
+        const label =
+          sold[0].menu_item_name +
+          (sold.length > 1 ? ` (+ ${sold.length - 1})` : "");
+        return NextResponse.json(
+          {
+            error: `En rupture : ${label}. Retire-le de la 86 list si tu veux forcer.`,
+            unavailable: sold.map((i) => i.menu_item_id),
+          },
+          { status: 409 }
+        );
+      }
+    } catch {
+      /* Fail open. */
+    }
   }
 
   try {

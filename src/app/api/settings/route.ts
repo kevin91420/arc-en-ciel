@@ -40,6 +40,7 @@ export async function GET() {
       menu_desserts_pdf_url: s.menu_desserts_pdf_url,
       payment_methods: s.payment_methods,
       tables: s.tables,
+      eighty_six_list: s.eighty_six_list,
       feature_reservations: s.feature_reservations,
       feature_qr_menu: s.feature_qr_menu,
       feature_loyalty: s.feature_loyalty,

@@ -74,6 +74,9 @@ export interface RestaurantSettings {
   // Tables (floor plan — white-label: any count, any name)
   tables: TableConfig[];
 
+  // 86 list — menu_item_ids temporarily unavailable (live stock propagation)
+  eighty_six_list: string[];
+
   // Financial
   tax_rate: number;
 
@@ -144,6 +147,7 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
     capacity: 4,
     zone: "Salle",
   })),
+  eighty_six_list: [],
   tax_rate: 10,
   legal_name: null,
   siret: null,

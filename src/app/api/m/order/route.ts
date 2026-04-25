@@ -36,6 +36,7 @@ import {
   getActiveOrderForTable,
   isPosConfigured,
 } from "@/lib/db/pos-client";
+import { getSettings } from "@/lib/db/settings-client";
 import type { AddItemsPayload, Station } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
@@ -229,6 +230,27 @@ export async function POST(req: NextRequest) {
       { error: "Aucun item valide" },
       { status: 400 }
     );
+  }
+
+  /* 86 guard — refuse if any requested item is flagged out of stock. Prevents
+   * a stale QR menu from leaking a sold-out plate past client-side checks. */
+  try {
+    const settings = await getSettings();
+    const eightySix = new Set(settings.eighty_six_list ?? []);
+    const sold = items.filter((i) => eightySix.has(i.menu_item_id));
+    if (sold.length > 0) {
+      const label =
+        sold[0].menu_item_name + (sold.length > 1 ? ` (+ ${sold.length - 1})` : "");
+      return NextResponse.json(
+        {
+          error: `Désolé, plus disponible ce soir : ${label}.`,
+          unavailable: sold.map((i) => i.menu_item_id),
+        },
+        { status: 409 }
+      );
+    }
+  } catch {
+    /* Settings unavailable → fail open (don't block dining on missing config). */
   }
 
   try {

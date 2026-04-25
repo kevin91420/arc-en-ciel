@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
 import { OliveBranch } from "@/components/Decorations";
+import { useEightySixList } from "@/lib/hooks/useEightySixList";
 
 /* ═══════════════════════════════════════════════════════════
    LA CARTE — Page éditoriale magazine culinaire
@@ -22,6 +23,7 @@ const FILTERS: { key: DietaryTag | "all"; label: string }[] = [
 export default function CartePage() {
   const [filter, setFilter] = useState<DietaryTag | "all">("all");
   const [activeSection, setActiveSection] = useState<string>("entrees");
+  const eightySixSet = useEightySixList();
 
   /* Filter logic */
   const filteredCarte = useMemo(() => {
@@ -214,7 +216,13 @@ export default function CartePage() {
               {/* Items grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 lg:gap-x-16 gap-y-10 sm:gap-y-14">
                 {category.items.map((item, i) => (
-                  <MenuItemCard key={item.id} item={item} index={i} reversed={i % 2 === 1} />
+                  <MenuItemCard
+                    key={item.id}
+                    item={item}
+                    index={i}
+                    reversed={i % 2 === 1}
+                    outOfStock={eightySixSet.has(item.id)}
+                  />
                 ))}
               </div>
 
@@ -273,10 +281,12 @@ function MenuItemCard({
   item,
   index,
   reversed,
+  outOfStock,
 }: {
   item: MenuItem;
   index: number;
   reversed?: boolean;
+  outOfStock?: boolean;
 }) {
   return (
     <motion.article
@@ -284,7 +294,11 @@ function MenuItemCard({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
-      className="group relative"
+      className={[
+        "group relative transition",
+        outOfStock ? "opacity-55 saturate-[0.55]" : "",
+      ].join(" ")}
+      aria-label={outOfStock ? `${item.name} — épuisé ce soir` : undefined}
     >
       <div className={`flex flex-col gap-5 ${reversed ? "md:flex-col" : "md:flex-col"}`}>
         {/* Image */}
@@ -303,6 +317,11 @@ function MenuItemCard({
 
             {/* Badges */}
             <div className="absolute top-3 left-3 flex flex-col gap-2">
+              {outOfStock && (
+                <span className="inline-flex items-center gap-1 bg-brown text-cream text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shadow-lg">
+                  Épuisé ce soir
+                </span>
+              )}
               {item.signature && (
                 <span className="inline-flex items-center gap-1 bg-brown/90 backdrop-blur-sm text-gold-light text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full">
                   ★ Signature

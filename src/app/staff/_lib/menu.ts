@@ -38,6 +38,7 @@ export interface PosMenuItem {
   station: Station;
   category_id: string;
   category_title: string;
+  image?: string;
   signature?: boolean;
   popular?: boolean;
   chef?: boolean;
@@ -77,6 +78,7 @@ export function toPosCatalog(carte: MenuCategory[]): PosMenuCategory[] {
         station,
         category_id: cat.id,
         category_title: cat.title,
+        image: it.image,
         signature: it.signature,
         popular: it.popular,
         chef: it.chef,

@@ -11,13 +11,22 @@
  */
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CARTE } from "@/data/carte";
 import type { OrderItem, OrderWithItems, PaymentMethod } from "@/lib/db/pos-types";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
+import { useEightySixList } from "@/lib/hooks/useEightySixList";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
+import {
+  COURSE_ICONS,
+  COURSE_LABELS,
+  COURSES,
+  type Course,
+  courseForCategory,
+} from "@/lib/courses";
 import {
   toPosCatalog,
   type PosMenuItem,
@@ -25,6 +34,18 @@ import {
 import PaymentModal from "./PaymentModal";
 
 const POS_CATALOG = toPosCatalog(CARTE);
+
+/* Lookup table: menu_item_id → image (if any). Built once at module load so
+ * OrderLine thumbnails don't trigger a CARTE search on every render. */
+const MENU_IMAGE_BY_ID: Record<string, string | undefined> = (() => {
+  const map: Record<string, string | undefined> = {};
+  for (const cat of POS_CATALOG) {
+    for (const item of cat.items) {
+      map[item.id] = item.image;
+    }
+  }
+  return map;
+})();
 
 /* Modifier hints per category — quick taps, no free-text typing. */
 const QUICK_MODIFIERS: Record<string, string[]> = {
@@ -94,6 +115,7 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     null
   );
   const pulseTick = useRef(0);
+  const eightySixSet = useEightySixList();
 
   /* Keep the server state fresh without thrash. */
   const refresh = useCallback(async () => {
@@ -137,6 +159,26 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const canPay =
     items.length > 0 &&
     items.every((i) => i.status !== "pending" && i.status !== "cancelled");
+
+  /* Pending count per course — drives the "Lancer les entrées / plats" CTAs. */
+  const pendingByCourse = useMemo(() => {
+    const m: Record<Course, number> = {
+      entree: 0,
+      plat: 0,
+      dessert: 0,
+      boisson: 0,
+    };
+    for (const it of items) {
+      if (it.status !== "pending") continue;
+      m[courseForCategory(it.menu_item_category)] += it.quantity;
+    }
+    return m;
+  }, [items]);
+
+  const coursesWithPending = useMemo(
+    () => COURSES.filter((c) => pendingByCourse[c] > 0),
+    [pendingByCourse]
+  );
 
   /* ─── Mutations ─────────────────────────────────── */
 
@@ -307,6 +349,23 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     }
   }
 
+  async function fireCourse(course: Course) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/staff/orders/${order.id}/fire-course`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course }),
+      });
+      if (res.ok) onChange(await res.json());
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function markAllServed() {
     if (busy) return;
     setBusy(true);
@@ -432,6 +491,30 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {order.fired_at && order.status !== "paid" && order.status !== "cancelled" && (
+            <button
+              type="button"
+              onClick={() => {
+                window.open(
+                  `/kitchen/ticket/${order.id}`,
+                  "_blank",
+                  "noopener,noreferrer,width=420,height=720"
+                );
+              }}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 h-9 rounded-full border border-terracotta/40 bg-cream text-brown text-xs font-semibold hover:border-gold hover:text-gold transition active:scale-95"
+              title="Réimprimer le ticket cuisine"
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5">
+                <path
+                  d="M6 9V3h12v6M6 18h12v3H6zM6 14h12M4 9h16v9H4z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Refaire
+            </button>
+          )}
           <StatusBadge status={order.status} />
         </div>
       </div>
@@ -508,6 +591,7 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
               </span>
             </div>
 
+            {/* Main "fire all" button — kept as the primary affordance. */}
             <button
               onClick={fireOrder}
               disabled={!hasPending || busy}
@@ -522,11 +606,33 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
                 />
               </svg>
               {hasPending
-                ? `Envoyer en cuisine (${items.filter((i) => i.status === "pending").length})`
+                ? `Envoyer tout en cuisine (${items.filter((i) => i.status === "pending").length})`
                 : allDelivered
                   ? "Tout est servi"
                   : "Rien à envoyer"}
             </button>
+
+            {/* Per-course fire — only shown when at least 2 courses are waiting,
+             * otherwise "tout envoyer" is equivalent and the noise hurts.  */}
+            {coursesWithPending.length >= 2 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {coursesWithPending.map((course) => (
+                  <button
+                    key={course}
+                    onClick={() => fireCourse(course)}
+                    disabled={busy}
+                    className="relative h-11 rounded-xl bg-cream border border-terracotta/40 text-brown text-xs font-bold hover:border-red hover:text-red disabled:opacity-50 transition inline-flex items-center justify-center gap-1.5"
+                    title={`Envoyer uniquement les ${COURSE_LABELS[course].toLowerCase()} (${pendingByCourse[course]} plat${pendingByCourse[course] > 1 ? "s" : ""})`}
+                  >
+                    <span aria-hidden>{COURSE_ICONS[course]}</span>
+                    <span>Lancer les {COURSE_LABELS[course].toLowerCase()}</span>
+                    <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1 text-[10px] font-black rounded-full bg-red text-cream">
+                      {pendingByCourse[course]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <Link
@@ -591,33 +697,90 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
 
           <div className="flex-1 overflow-y-auto px-3 md:px-4 py-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {activeCatalog.items.map((it) => (
-                <button
-                  key={it.id}
-                  onClick={() => addItem(it)}
-                  disabled={busy}
-                  className="group relative text-left bg-cream border border-terracotta/40 rounded-xl p-3 hover:border-gold hover:shadow-md hover:-translate-y-[1px] active:translate-y-0 transition disabled:opacity-60"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-[13px] font-[family-name:var(--font-display)] font-semibold text-brown leading-tight line-clamp-2">
-                      {it.name}
-                    </p>
-                    {it.signature && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-gold shrink-0">
-                        ★
-                      </span>
+              {activeCatalog.items.map((it) => {
+                const out = eightySixSet.has(it.id);
+                return (
+                  <button
+                    key={it.id}
+                    onClick={() => {
+                      if (out) return;
+                      addItem(it);
+                    }}
+                    disabled={busy || out}
+                    className={[
+                      "group relative text-left rounded-xl overflow-hidden transition",
+                      out
+                        ? "bg-brown/5 border border-brown/15 opacity-60 cursor-not-allowed"
+                        : "bg-cream border border-terracotta/40 hover:border-gold hover:shadow-md hover:-translate-y-[1px] active:translate-y-0 disabled:opacity-60",
+                    ].join(" ")}
+                  >
+                    {it.image && (
+                      <div className="relative w-full aspect-[4/3] bg-brown/5">
+                        <Image
+                          src={it.image}
+                          alt={it.name}
+                          fill
+                          sizes="(max-width:640px) 50vw, 220px"
+                          className={[
+                            "object-cover transition",
+                            out ? "grayscale opacity-70" : "group-hover:scale-[1.03]",
+                          ].join(" ")}
+                        />
+                        {out && (
+                          <span className="absolute top-1.5 right-1.5 text-[9px] font-bold uppercase tracking-wider bg-red text-cream px-2 py-0.5 rounded-full shadow">
+                            86
+                          </span>
+                        )}
+                        {it.signature && !out && (
+                          <span className="absolute top-1.5 right-1.5 text-[9px] font-bold uppercase tracking-wider bg-brown/90 text-gold-light px-2 py-0.5 rounded-full shadow backdrop-blur">
+                            ★ Signature
+                          </span>
+                        )}
+                      </div>
                     )}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] uppercase tracking-[0.15em] text-brown-light">
-                      {it.station}
-                    </span>
-                    <span className="font-[family-name:var(--font-display)] font-bold text-brown tabular-nums">
-                      {it.price_label}
-                    </span>
-                  </div>
-                </button>
-              ))}
+                    <div className="p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p
+                          className={[
+                            "text-[13px] font-[family-name:var(--font-display)] font-semibold leading-tight line-clamp-2",
+                            out ? "text-brown/60 line-through" : "text-brown",
+                          ].join(" ")}
+                        >
+                          {it.name}
+                        </p>
+                        {!it.image && it.signature && !out && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gold shrink-0">
+                            ★
+                          </span>
+                        )}
+                        {!it.image && out && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider bg-red text-cream px-1.5 py-0.5 rounded shrink-0">
+                            86
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span
+                          className={[
+                            "text-[10px] uppercase tracking-[0.15em]",
+                            out ? "text-brown/40" : "text-brown-light",
+                          ].join(" ")}
+                        >
+                          {out ? "Épuisé" : it.station}
+                        </span>
+                        <span
+                          className={[
+                            "font-[family-name:var(--font-display)] font-bold tabular-nums",
+                            out ? "text-brown/50" : "text-brown",
+                          ].join(" ")}
+                        >
+                          {it.price_label}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -708,6 +871,8 @@ function OrderLine({
   const s = ITEM_STATUS_STYLES[item.status];
   const canEdit = item.status === "pending";
 
+  const thumb = MENU_IMAGE_BY_ID[item.menu_item_id];
+
   return (
     <motion.li
       layout
@@ -723,6 +888,18 @@ function OrderLine({
           className={`mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 ${s.dot}`}
           aria-hidden
         />
+
+        {thumb && (
+          <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-brown/5 shrink-0 hidden sm:block">
+            <Image
+              src={thumb}
+              alt=""
+              fill
+              sizes="56px"
+              className="object-cover"
+            />
+          </div>
+        )}
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-3">

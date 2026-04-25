@@ -341,6 +341,44 @@ export async function fireOrder(orderId: string): Promise<OrderWithItems> {
   return updated;
 }
 
+/**
+ * Fire only the pending items whose category matches the given list of
+ * categories — lets the server "lancer les entrées" first, then "lancer les
+ * plats" when the table is ready. The order moves to `fired` as soon as
+ * *anything* is in the kitchen.
+ */
+export async function fireOrderByCategories(
+  orderId: string,
+  categories: string[]
+): Promise<OrderWithItems> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  if (categories.length === 0) {
+    /* Nothing to fire — return the order as-is. */
+    const current = await getOrder(orderId);
+    if (!current) throw new Error("Order not found");
+    return current;
+  }
+  const now = new Date().toISOString();
+  const catList = categories
+    .map((c) => `"${c.replace(/"/g, "")}"`)
+    .join(",");
+  await sb(
+    `order_items?order_id=eq.${orderId}&status=eq.pending&menu_item_category=in.(${catList})`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "cooking", fired_at: now }),
+    }
+  );
+  /* Bump order.status to `fired` if it isn't already. */
+  await sb(`orders?id=eq.${orderId}&status=eq.open`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "fired", fired_at: now }),
+  });
+  const updated = await getOrder(orderId);
+  if (!updated) throw new Error("Order not found after fire");
+  return updated;
+}
+
 export async function updateOrderStatus(
   orderId: string,
   status: OrderStatus

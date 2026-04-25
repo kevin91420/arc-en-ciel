@@ -44,6 +44,8 @@ const ALLOWED_KEYS = [
   "payment_methods",
   // Tables (floor plan)
   "tables",
+  // 86 list
+  "eighty_six_list",
   // Features
   "feature_reservations",
   "feature_qr_menu",
@@ -95,6 +97,15 @@ export async function PATCH(req: NextRequest) {
         .map((s) => (typeof s === "string" ? s.trim() : ""))
         .filter(Boolean)
         .slice(0, 20);
+    }
+    if (Array.isArray(updates.eighty_six_list)) {
+      updates.eighty_six_list = Array.from(
+        new Set(
+          updates.eighty_six_list
+            .map((v) => (typeof v === "string" ? v.trim() : ""))
+            .filter((v) => v.length > 0 && v.length <= 64)
+        )
+      ).slice(0, 500);
     }
     if (Array.isArray(updates.tables)) {
       const seen = new Set<number>();
