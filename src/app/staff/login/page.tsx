@@ -12,6 +12,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 
 const PIN_LENGTH = 4;
 
@@ -260,6 +261,7 @@ function PinKey({
 }
 
 export default function StaffLoginPage() {
+  const branding = useRestaurantBranding();
   return (
     <main className="min-h-screen flex items-center justify-center px-4 py-10 bg-gradient-to-br from-brown via-[#2a140c] to-[#1a0e08] bg-noise">
       <motion.div
@@ -270,7 +272,7 @@ export default function StaffLoginPage() {
       >
         <div className="text-center mb-10">
           <p className="font-[family-name:var(--font-script)] text-gold-light text-2xl leading-none">
-            L&apos;Arc en Ciel
+            {branding.name}
           </p>
           <h1 className="mt-3 font-[family-name:var(--font-display)] text-5xl text-cream font-bold tracking-tight">
             GOURMET POS

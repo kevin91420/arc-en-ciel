@@ -18,6 +18,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getTicketCountsByStation } from "@/lib/db/pos-client";
+import { getSettings } from "@/lib/db/settings-client";
 import {
   ALL_STATION_CONFIG,
   STATIONS_CONFIG,
@@ -27,10 +28,17 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Cuisine · L'Arc en Ciel",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  let brand = "Cuisine";
+  try {
+    const s = await getSettings();
+    brand = s.name?.trim() || brand;
+  } catch {}
+  return {
+    title: `Cuisine · ${brand}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function KitchenHomePage() {
   let counts: Record<string, number> = {};
@@ -40,6 +48,13 @@ export default async function KitchenHomePage() {
   } catch (err) {
     loadError = (err as Error).message || "Erreur de chargement";
   }
+  let brandName = "Cuisine";
+  let brandTagline = "";
+  try {
+    const s = await getSettings();
+    brandName = s.name?.trim() || brandName;
+    brandTagline = s.tagline?.trim() || "";
+  } catch {}
   const totalAll = Object.values(counts).reduce((s, n) => s + n, 0);
 
   return (
@@ -58,8 +73,13 @@ export default async function KitchenHomePage() {
         <h1 className="font-[family-name:var(--font-display)] text-4xl md:text-6xl font-bold text-cream leading-[1.02] tracking-tight">
           Cuisine
           <span className="block font-[family-name:var(--font-script)] text-gold text-3xl md:text-5xl font-normal mt-1">
-            L&apos;Arc en Ciel
+            {brandName}
           </span>
+          {brandTagline && (
+            <span className="block text-cream/40 text-sm md:text-base font-normal tracking-wide mt-2">
+              {brandTagline}
+            </span>
+          )}
         </h1>
         <p className="mt-6 text-cream/65 text-base md:text-lg max-w-2xl">
           Choisis ta station. Tu ne verras que tes plats — impossible de valider

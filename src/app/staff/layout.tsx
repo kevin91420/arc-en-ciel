@@ -12,6 +12,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 
 type StaffInfo = {
   id: string;
@@ -29,6 +30,7 @@ export default function StaffLayout({
   const router = useRouter();
   const [staff, setStaff] = useState<StaffInfo | null>(null);
   const [clock, setClock] = useState("");
+  const branding = useRestaurantBranding();
 
   const isLoginPage = pathname === "/staff/login";
 
@@ -85,7 +87,7 @@ export default function StaffLayout({
             aria-label="Plan de salle"
           >
             <span className="font-[family-name:var(--font-script)] text-gold-light text-xl leading-none group-hover:text-gold transition">
-              L&apos;Arc en Ciel
+              {branding.name}
             </span>
             <span className="hidden sm:inline-block text-[10px] tracking-[0.25em] px-2 py-0.5 rounded bg-gold/15 text-gold-light font-bold">
               POS SERVEUR

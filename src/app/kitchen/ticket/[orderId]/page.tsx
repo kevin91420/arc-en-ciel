@@ -11,11 +11,16 @@
 
 import type { Metadata } from "next";
 import TicketPrint from "./TicketPrint";
+import { getSettings } from "@/lib/db/settings-client";
 
-export const metadata: Metadata = {
-  title: "Ticket cuisine · L'Arc en Ciel",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  let brand = "Ticket cuisine";
+  try {
+    const s = await getSettings();
+    if (s.name?.trim()) brand = `Ticket cuisine · ${s.name.trim()}`;
+  } catch {}
+  return { title: brand, robots: { index: false, follow: false } };
+}
 
 type PageProps = {
   params: Promise<{ orderId: string }>;
@@ -23,5 +28,13 @@ type PageProps = {
 
 export default async function KitchenTicketPage({ params }: PageProps) {
   const { orderId } = await params;
-  return <TicketPrint orderId={orderId} />;
+  /* Resolve branding server-side so the print head is correct on the very
+   * first paint (no flash of "L'ARC EN CIEL" while the API is hydrating). */
+  const settings = await getSettings().catch(() => null);
+  return (
+    <TicketPrint
+      orderId={orderId}
+      brandName={settings?.name?.trim() || "Cuisine"}
+    />
+  );
 }

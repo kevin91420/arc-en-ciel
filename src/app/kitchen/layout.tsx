@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getSettings } from "@/lib/db/settings-client";
 
 /**
  * /kitchen — KDS (Kitchen Display System).
@@ -8,10 +9,17 @@ import type { Metadata } from "next";
  * dark body background and the tab title.
  */
 
-export const metadata: Metadata = {
-  title: "KDS Cuisine · L'Arc en Ciel",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  let brand = "Cuisine";
+  try {
+    const s = await getSettings();
+    brand = s.name?.trim() || brand;
+  } catch {}
+  return {
+    title: `KDS Cuisine · ${brand}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export default function KitchenLayout({
   children,

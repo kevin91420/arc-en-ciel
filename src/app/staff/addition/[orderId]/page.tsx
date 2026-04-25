@@ -12,6 +12,11 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import type { OrderWithItems } from "@/lib/db/pos-types";
+import {
+  useRestaurantBranding,
+  formatAddressLines,
+  formatContactLine,
+} from "@/lib/hooks/useRestaurantBranding";
 
 type PageProps = {
   params: Promise<{ orderId: string }>;
@@ -44,6 +49,17 @@ export default function AdditionPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [splitCount, setSplitCount] = useState(1);
+  const branding = useRestaurantBranding();
+  const addressLines = formatAddressLines(branding);
+  const contactLine = formatContactLine(branding);
+  const taxRate = branding.tax_rate ?? 10;
+  const legalLine = [
+    branding.vat_number ? `TVA ${branding.vat_number}` : "",
+    branding.siret ? `SIRET ${branding.siret}` : "",
+    branding.legal_name || "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   useEffect(() => {
     if (!orderId) return;
@@ -222,16 +238,24 @@ export default function AdditionPage({ params }: PageProps) {
         {/* Header */}
         <div className="text-center">
           <p className="font-[family-name:var(--font-script)] text-gold-light text-2xl leading-none">
-            L&apos;Arc en Ciel
+            {branding.name}
           </p>
-          <h1 className="mt-2 font-[family-name:var(--font-display)] text-2xl text-brown font-semibold">
-            Pizzeria Méditerranéenne
-          </h1>
-          <p className="text-[11px] text-brown-light mt-1 leading-tight">
-            12 rue des Oliviers · 91420 Morangis
-            <br />
-            01 23 45 67 89 · arc-en-ciel.fr
-          </p>
+          {branding.tagline && (
+            <h1 className="mt-2 font-[family-name:var(--font-display)] text-2xl text-brown font-semibold">
+              {branding.tagline}
+            </h1>
+          )}
+          {(addressLines.length > 0 || contactLine) && (
+            <p className="text-[11px] text-brown-light mt-1 leading-tight">
+              {addressLines.map((line, i) => (
+                <span key={i}>
+                  {line}
+                  {(i < addressLines.length - 1 || contactLine) && <br />}
+                </span>
+              ))}
+              {contactLine && <span>{contactLine}</span>}
+            </p>
+          )}
           {splitActive && (
             <p className="mt-3 inline-block text-[10px] uppercase tracking-[0.22em] font-bold bg-brown text-cream px-3 py-1 rounded-full">
               Part {shareIdx + 1} / {splitCount}
@@ -307,7 +331,7 @@ export default function AdditionPage({ params }: PageProps) {
             </span>
           </div>
           <div className="flex justify-between text-brown-light">
-            <span>TVA 10&nbsp;%</span>
+            <span>TVA {taxRate}&nbsp;%</span>
             <span className="tabular-nums">{formatCents(order.tax_cents)}</span>
           </div>
           {order.tip_cents > 0 && (
@@ -366,11 +390,11 @@ export default function AdditionPage({ params }: PageProps) {
             Merci de votre visite
           </p>
           <p className="mt-1 text-[10px] text-brown-light tracking-wide">
-            À bientôt chez L&apos;Arc en Ciel
+            À bientôt chez {branding.name}
           </p>
-          <p className="mt-4 text-[9px] text-brown-light/60">
-            TVA FR12 345 678 901 · SIRET 123 456 789 00012
-          </p>
+          {legalLine && (
+            <p className="mt-4 text-[9px] text-brown-light/60">{legalLine}</p>
+          )}
         </div>
       </div>
       ))}

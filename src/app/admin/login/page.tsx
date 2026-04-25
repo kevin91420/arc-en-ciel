@@ -12,6 +12,7 @@ import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 
 function LoginForm() {
   const params = useSearchParams();
@@ -101,6 +102,7 @@ function LoginForm() {
 }
 
 export default function AdminLoginPage() {
+  const branding = useRestaurantBranding();
   return (
     <main className="min-h-screen flex items-center justify-center bg-cream bg-noise px-4 py-12">
       <motion.div
@@ -111,7 +113,7 @@ export default function AdminLoginPage() {
       >
         <div className="text-center mb-8">
           <p className="font-[family-name:var(--font-script)] text-gold text-2xl leading-none">
-            L&apos;Arc en Ciel
+            {branding.name}
           </p>
           <h1 className="mt-2 font-[family-name:var(--font-display)] text-4xl text-brown font-semibold">
             Espace Admin

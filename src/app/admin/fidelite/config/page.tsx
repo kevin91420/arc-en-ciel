@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { LoyaltyConfig } from "@/lib/db/loyalty-types";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 
 type Dirty<T> = { [K in keyof T]: T[K] };
 
@@ -19,6 +20,8 @@ export default function LoyaltyConfigPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const branding = useRestaurantBranding();
+  const brandName = branding.name;
 
   useEffect(() => {
     fetch("/api/admin/loyalty/config", {
@@ -309,7 +312,7 @@ export default function LoyaltyConfigPage() {
           <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-semibold mb-3">
             Aperçu en direct
           </p>
-          <CardPreview config={draft} />
+          <CardPreview config={draft} brandName={brandName} />
           <p className="mt-4 text-xs text-brown-light/80 italic">
             C&apos;est ce que voit le client sur son téléphone après inscription.
           </p>
@@ -436,7 +439,13 @@ function Toggle({
   );
 }
 
-function CardPreview({ config }: { config: LoyaltyConfig }) {
+function CardPreview({
+  config,
+  brandName,
+}: {
+  config: LoyaltyConfig;
+  brandName: string;
+}) {
   return (
     <motion.div
       layout
@@ -456,7 +465,7 @@ function CardPreview({ config }: { config: LoyaltyConfig }) {
               className="font-[family-name:var(--font-script)] text-xl"
               style={{ color: config.accent_color }}
             >
-              L&apos;Arc en Ciel
+              {brandName}
             </p>
             <p className="font-[family-name:var(--font-display)] text-lg font-bold mt-0.5">
               Carte fidélité

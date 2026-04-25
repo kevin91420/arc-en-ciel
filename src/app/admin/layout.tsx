@@ -13,6 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 import { formatFrenchDate, todayISO } from "./_lib/format";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 
 /** Returns today's formatted date on the client, "" during SSR (avoids hydration mismatch). */
 function useTodayLabel(): string {
@@ -174,6 +175,7 @@ export default function AdminLayout({
   const router = useRouter();
   const [isDemo, setIsDemo] = useState(false);
   const today = useTodayLabel();
+  const branding = useRestaurantBranding();
 
   // Login page renders bare — no shell.
   const isLoginPage = pathname === "/admin/login";
@@ -208,7 +210,7 @@ export default function AdminLayout({
       <aside className="hidden md:flex md:flex-col md:w-60 lg:w-64 sticky top-0 h-screen bg-brown text-cream border-r border-brown-light/30">
         <div className="px-5 pt-6 pb-5 border-b border-cream/10">
           <p className="font-[family-name:var(--font-script)] text-gold-light text-xl leading-none">
-            L&apos;Arc en Ciel
+            {branding.name}
           </p>
           <p className="font-[family-name:var(--font-display)] text-cream text-xl font-semibold mt-1">
             Admin
@@ -315,13 +317,13 @@ export default function AdminLayout({
         <header className="sticky top-0 z-20 bg-white-warm/90 backdrop-blur-sm border-b border-terracotta/30 px-4 md:px-8 py-3 flex items-center gap-4">
           <div className="md:hidden">
             <p className="font-[family-name:var(--font-script)] text-gold text-lg leading-none">
-              L&apos;Arc en Ciel
+              {branding.name}
             </p>
             <p className="text-xs text-brown-light">Admin</p>
           </div>
           <div className="hidden md:block">
             <h1 className="font-[family-name:var(--font-display)] text-xl text-brown font-semibold leading-tight">
-              L&apos;Arc en Ciel{" "}
+              {branding.name}{" "}
               <span className="text-gold font-normal">— Admin</span>
             </h1>
             <p className="text-xs text-brown-light capitalize mt-0.5">{today}</p>

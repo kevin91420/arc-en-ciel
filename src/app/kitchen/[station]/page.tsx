@@ -13,21 +13,31 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import KitchenBoard from "../_lib/KitchenBoard";
 import { getStationConfig, isStationKey } from "../_lib/stations";
+import { getSettings } from "@/lib/db/settings-client";
 
 type PageProps = {
   params: Promise<{ station: string }>;
 };
 
+async function getBrandName(): Promise<string> {
+  try {
+    const s = await getSettings();
+    return s.name?.trim() || "Cuisine";
+  } catch {
+    return "Cuisine";
+  }
+}
+
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
-  const { station } = await params;
+  const [{ station }, brand] = await Promise.all([params, getBrandName()]);
   if (!isStationKey(station)) {
-    return { title: "Cuisine · L'Arc en Ciel" };
+    return { title: `Cuisine · ${brand}`, robots: { index: false, follow: false } };
   }
   const cfg = getStationConfig(station);
   return {
-    title: `KDS · ${cfg.label} · L'Arc en Ciel`,
+    title: `KDS · ${cfg.label} · ${brand}`,
     robots: { index: false, follow: false },
   };
 }

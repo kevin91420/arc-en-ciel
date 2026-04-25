@@ -87,11 +87,11 @@ function groupByStation(items: OrderItem[]): Map<Station, OrderItem[]> {
    Component
    ═══════════════════════════════════════════════════════════ */
 
-type Props = { orderId: string };
+type Props = { orderId: string; brandName?: string };
 
 type PrintState = "loading" | "ready" | "printed" | "error";
 
-export default function TicketPrint({ orderId }: Props) {
+export default function TicketPrint({ orderId, brandName = "Cuisine" }: Props) {
   const [order, setOrder] = useState<OrderWithItems | null>(null);
   const [state, setState] = useState<PrintState>("loading");
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -278,9 +278,10 @@ export default function TicketPrint({ orderId }: Props) {
               fontSize: 16,
               letterSpacing: "0.08em",
               margin: "4px 0 2px",
+              textTransform: "uppercase",
             }}
           >
-            L&apos;ARC EN CIEL
+            {brandName}
           </div>
           <div
             style={{
