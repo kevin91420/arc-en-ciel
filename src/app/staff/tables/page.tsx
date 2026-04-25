@@ -13,7 +13,7 @@
  *   server refreshes every tablet at once.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -21,6 +21,8 @@ import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import type { OrderWithItems } from "@/lib/db/pos-types";
 import type { TableConfig } from "@/lib/db/settings-types";
+
+const NOTIF_KEY = "arc-staff-notif";
 
 type TabId = "salle" | "emporter" | "livraison";
 
@@ -107,6 +109,70 @@ export default function TablesPage() {
   const [creatingTakeaway, setCreatingTakeaway] = useState<
     null | "takeaway" | "delivery"
   >(null);
+  const [notifOn, setNotifOn] = useState(true);
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const knownReadyItems = useRef<Set<string>>(new Set());
+  const firstLoadRef = useRef(true);
+
+  /* Restore notification preference from localStorage. Default ON. */
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(NOTIF_KEY);
+      if (saved === "off") setNotifOn(false);
+    } catch {}
+  }, []);
+
+  /* Pull staff identity once so the ping only fires for THIS server's tables.
+   * Tables with no assigned staff (counter, takeaway) ping everyone. */
+  useEffect(() => {
+    fetch("/api/staff/auth", { credentials: "include", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.id) setStaffId(d.id);
+      })
+      .catch(() => {});
+  }, []);
+
+  const playReadyChime = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const Ctor: typeof AudioContext =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      const ctx = new Ctor();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      /* Pleasant 2-note motif (E5 then A5) — distinct from the KDS ping. */
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.16);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.32, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.42);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.45);
+      osc.onended = () => ctx.close();
+    } catch {
+      /* Audio is best effort. */
+    }
+    try {
+      navigator.vibrate?.([60, 40, 60]);
+    } catch {}
+  }, []);
+
+  function toggleNotif() {
+    setNotifOn((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(NOTIF_KEY, next ? "on" : "off");
+      } catch {}
+      return next;
+    });
+  }
 
   /* Load the floor plan from public settings. */
   useEffect(() => {
@@ -141,13 +207,41 @@ export default function TablesPage() {
         return;
       }
       const data = await res.json();
-      setOrders(Array.isArray(data?.orders) ? data.orders : []);
+      const next: OrderWithItems[] = Array.isArray(data?.orders) ? data.orders : [];
+      setOrders(next);
+
+      /* Detect newly-ready items for this staff member → ping + vibrate.
+       * Items shown elsewhere (other servers' tables) are ignored. We diff
+       * against the previous known set so a single PATCH triggers exactly
+       * one ping, not one per realtime tick. */
+      const incomingReady = new Set<string>();
+      for (const o of next) {
+        const mine =
+          !o.staff_id ||
+          (staffId && o.staff_id === staffId);
+        if (!mine) continue;
+        for (const it of o.items) {
+          if (it.status === "ready" && !it.acknowledged_at) {
+            incomingReady.add(it.id);
+          }
+        }
+      }
+      if (!firstLoadRef.current && notifOn) {
+        for (const id of incomingReady) {
+          if (!knownReadyItems.current.has(id)) {
+            playReadyChime();
+            break; /* one chime per refresh — don't machine-gun the floor */
+          }
+        }
+      }
+      knownReadyItems.current = incomingReady;
+      firstLoadRef.current = false;
     } catch {
       /* Silently retry on next realtime tick. */
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, staffId, notifOn, playReadyChime]);
 
   useEffect(() => {
     refresh();
@@ -248,21 +342,48 @@ export default function TablesPage() {
           </p>
         </div>
 
-        <Link
-          href="/admin/parametres/tables"
-          className="text-xs text-brown-light hover:text-brown font-semibold inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-terracotta/30 hover:bg-cream transition"
-        >
-          <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5">
-            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-            <path
-              d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
-          Configurer
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleNotif}
+            title={
+              notifOn
+                ? "Notification sonore activée — cliquer pour désactiver"
+                : "Notification sonore désactivée — cliquer pour réactiver"
+            }
+            aria-pressed={notifOn}
+            aria-label={
+              notifOn ? "Désactiver le son" : "Activer le son"
+            }
+            className={[
+              "inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs font-semibold transition active:scale-95 border",
+              notifOn
+                ? "bg-gold/15 border-gold/50 text-brown"
+                : "bg-cream border-terracotta/30 text-brown-light",
+            ].join(" ")}
+          >
+            <span aria-hidden>{notifOn ? "🔔" : "🔕"}</span>
+            <span className="hidden sm:inline">
+              {notifOn ? "Son ON" : "Son OFF"}
+            </span>
+          </button>
+
+          <Link
+            href="/admin/parametres/tables"
+            className="text-xs text-brown-light hover:text-brown font-semibold inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-terracotta/30 hover:bg-cream transition"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5">
+              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+              <path
+                d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+            Configurer
+          </Link>
+        </div>
       </div>
 
       {/* ─── Top-level tabs ─────────────────────────── */}

@@ -15,6 +15,7 @@ import type {
   AddItemsPayload,
   PaymentMethod,
   Station,
+  OrderFlag,
 } from "./pos-types";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -379,6 +380,40 @@ export async function fireOrderByCategories(
   return updated;
 }
 
+/**
+ * Set the flags array on an order. Flags are additive tags ("rush" /
+ * "allergy" / "birthday" / "vip"). Pass an empty array to clear them.
+ */
+export async function setOrderFlags(
+  orderId: string,
+  flags: OrderFlag[]
+): Promise<OrderWithItems> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  await sb(`orders?id=eq.${orderId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ flags }),
+  });
+  const updated = await getOrder(orderId);
+  if (!updated) throw new Error("Order not found");
+  return updated;
+}
+
+/**
+ * Mark a `ready` item as picked up by the server (acknowledged_at = now).
+ * The chef sees "parti en salle" without the row being marked served yet,
+ * so the customer can still flag a problem before the cycle closes.
+ */
+export async function acknowledgeItem(
+  itemId: string
+): Promise<OrderItem | null> {
+  if (!USE_SUPABASE) return null;
+  const [updated] = await sb<OrderItem[]>(`order_items?id=eq.${itemId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ acknowledged_at: new Date().toISOString() }),
+  });
+  return updated ?? null;
+}
+
 export async function updateOrderStatus(
   orderId: string,
   status: OrderStatus
@@ -488,6 +523,7 @@ export async function getKitchenTickets(
         source: o.source,
         fired_at: o.fired_at,
         notes: o.notes,
+        flags: o.flags ?? [],
         items: itemsByOrder.get(o.id) || [],
         minutes_elapsed: Math.max(0, Math.floor((now - fireTime) / 60000)),
         staff_name: o.staff_id ? staffMap.get(o.staff_id) : undefined,

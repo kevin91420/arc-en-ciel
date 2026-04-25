@@ -41,6 +41,7 @@ create table if not exists orders (
   total_cents int default 0,
   tip_cents int default 0,
   payment_method text check (payment_method in ('cash', 'card', 'ticket_resto', 'other', null)),
+  flags text[] default array[]::text[],  -- Optional tags : rush, allergy, birthday, vip
   fired_at timestamptz,         -- Moment d'envoi en cuisine
   ready_at timestamptz,         -- Moment où tout est prêt
   served_at timestamptz,
@@ -74,6 +75,7 @@ create table if not exists order_items (
   station text default 'main' check (station in ('main', 'pizza', 'grill', 'cold', 'dessert', 'bar')),
   fired_at timestamptz,
   ready_at timestamptz,
+  acknowledged_at timestamptz,  -- Server has picked up the plate (between ready and served)
   served_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()

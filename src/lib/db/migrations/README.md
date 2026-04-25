@@ -19,6 +19,7 @@ Each script is numbered sequentially (`0001`, `0002`, …) and is safe to re-run
 | File | Sprint | What it does |
 |------|--------|--------------|
 | `0001_sprints_2_3.sql` | 2 + 3 | Adds `tables jsonb` (white-label floor plan) and `eighty_six_list text[]` (live ruptures) to `restaurant_settings`. |
+| `0002_sprint4_service_flow.sql` | 4 | Adds `orders.flags text[]` (rush/allergy/birthday/vip), `order_items.acknowledged_at`, and feature toggles `feature_runner_tickets` (default OFF), `feature_special_flags` (default ON). |
 
 ## After deploy
 

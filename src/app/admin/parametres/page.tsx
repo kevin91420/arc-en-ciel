@@ -1417,6 +1417,18 @@ const FEATURE_ROWS: Array<{
     desc: "Badge halal sur la page d'accueil.",
     icon: "🕌",
   },
+  {
+    key: "feature_special_flags",
+    label: "Flags spéciaux",
+    desc: "Boutons Rush / Allergie / Anniversaire / VIP sur les commandes — visibles cuisine + ticket.",
+    icon: "🚩",
+  },
+  {
+    key: "feature_runner_tickets",
+    label: "Bons de service auto",
+    desc: "Imprime un mini-ticket runner (à coller devant le plat) quand un plat est prêt.",
+    icon: "🖨",
+  },
 ];
 
 function FeaturesTab({ draft, update }: TabProps) {

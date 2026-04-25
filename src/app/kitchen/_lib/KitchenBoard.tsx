@@ -21,11 +21,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { OliveBranch } from "@/components/Decorations";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 import type {
   KitchenTicket,
   OrderItem,
   OrderItemStatus,
+  OrderFlag,
 } from "@/lib/db/pos-types";
+import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
 import {
   getStationConfig,
   STATIONS_ORDER,
@@ -70,6 +73,8 @@ export default function KitchenBoard({ station }: Props) {
 
   const knownOrderIds = useRef<Set<string>>(new Set());
   const firstLoadRef = useRef(true);
+  const branding = useRestaurantBranding();
+  const runnerTicketsEnabled = Boolean(branding.feature_runner_tickets);
 
   /* ── Clock (updates every second) ───────────────────────── */
   useEffect(() => {
@@ -240,12 +245,22 @@ export default function KitchenBoard({ station }: Props) {
           }
           throw new Error(`HTTP ${res.status}`);
         }
+        /* Runner ticket auto-open : when the chef passes a plate to `ready`,
+         * pop a small window that auto-prints the runner marker. Opt-in via
+         * settings.feature_runner_tickets — silent no-op when disabled. */
+        if (next === "ready" && runnerTicketsEnabled && typeof window !== "undefined") {
+          window.open(
+            `/kitchen/runner/${item.id}`,
+            `runner-${item.id}`,
+            "width=420,height=620,noopener,noreferrer"
+          );
+        }
       } catch {
         /* Rollback via full reload. */
         load();
       }
     },
-    [station, isLocked, load]
+    [station, isLocked, load, runnerTicketsEnabled]
   );
 
   /* ── Client-side belt-and-braces filter for items ───────── */
@@ -628,12 +643,27 @@ function TicketCard({
   const urgent = elapsed >= 15;
   const warning = elapsed >= 10 && elapsed < 15;
   const allReady = ticket.items.every((i) => i.status === "ready");
+  const flags = (ticket.flags ?? []) as OrderFlag[];
+  /* Priority order : rush > allergy > vip > birthday — picks the dominant
+   * tone for the card border. Urgent timer still wins over flags. */
+  const dominantFlag: OrderFlag | null = flags.includes("rush")
+    ? "rush"
+    : flags.includes("allergy")
+      ? "allergy"
+      : flags.includes("vip")
+        ? "vip"
+        : flags.includes("birthday")
+          ? "birthday"
+          : null;
+  const dominantTone = dominantFlag ? ORDER_FLAGS_META[dominantFlag].tone : null;
 
   const borderColor = urgent
     ? "rgba(192,57,43,0.8)"
-    : allReady
-      ? "rgba(74,163,92,0.7)"
-      : "rgba(184,146,47,0.55)";
+    : dominantTone
+      ? dominantTone
+      : allReady
+        ? "rgba(74,163,92,0.7)"
+        : "rgba(184,146,47,0.55)";
 
   return (
     <motion.article
@@ -657,6 +687,27 @@ function TicketCard({
           animate={{ opacity: [0.4, 0.9, 0.4] }}
           transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
         />
+      )}
+
+      {flags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {flags.map((flag) => {
+            const meta = ORDER_FLAGS_META[flag];
+            return (
+              <span
+                key={flag}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-[0.16em] text-white"
+                style={{
+                  backgroundColor: meta.tone,
+                  boxShadow: `0 0 0 1.5px ${meta.tone}cc`,
+                }}
+              >
+                <span aria-hidden>{meta.icon}</span>
+                {meta.label}
+              </span>
+            );
+          })}
+        </div>
       )}
 
       <header className="flex items-start gap-3 mb-3">

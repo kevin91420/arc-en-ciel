@@ -71,6 +71,10 @@ export interface RestaurantSettings {
   feature_pmr: boolean;
   feature_halal: boolean;
 
+  // Service flow (Sprint 4) — opt-in chrome
+  feature_runner_tickets: boolean; // auto-print runner ticket when item ready
+  feature_special_flags: boolean;  // expose Rush/Allergie/Anniv/VIP toggles
+
   // Tables (floor plan — white-label: any count, any name)
   tables: TableConfig[];
 
@@ -141,6 +145,8 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
   feature_terrace: true,
   feature_pmr: true,
   feature_halal: true,
+  feature_runner_tickets: false,
+  feature_special_flags: true,
   tables: Array.from({ length: 10 }, (_, i) => ({
     number: i + 1,
     label: `T${i + 1}`,

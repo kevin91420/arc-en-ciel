@@ -32,6 +32,9 @@ export interface RestaurantBranding {
   siret?: string | null;
   vat_number?: string | null;
   tax_rate?: number;
+  /* Service-flow opt-in toggles (Sprint 4). */
+  feature_runner_tickets?: boolean;
+  feature_special_flags?: boolean;
 }
 
 /* Build the static fallback once. Subsetting DEFAULT_SETTINGS keeps the bundle
@@ -74,6 +77,8 @@ async function fetchBranding(): Promise<RestaurantBranding> {
       siret: data.siret ?? null,
       vat_number: data.vat_number ?? null,
       tax_rate: data.tax_rate,
+      feature_runner_tickets: Boolean(data.feature_runner_tickets),
+      feature_special_flags: data.feature_special_flags !== false,
     };
     cacheAt = Date.now();
     return cache;

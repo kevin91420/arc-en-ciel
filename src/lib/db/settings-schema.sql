@@ -53,6 +53,10 @@ create table if not exists restaurant_settings (
   feature_pmr boolean default true,
   feature_halal boolean default true,
 
+  -- Service flow opt-in toggles (Sprint 4)
+  feature_runner_tickets boolean default false,
+  feature_special_flags boolean default true,
+
   -- TVA rate (percentage 0-100)
   tax_rate numeric(4, 2) default 10.00,
 

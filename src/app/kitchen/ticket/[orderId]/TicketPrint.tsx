@@ -18,7 +18,9 @@ import type {
   OrderWithItems,
   OrderItem,
   Station,
+  OrderFlag,
 } from "@/lib/db/pos-types";
+import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
 
 /* ═══════════════════════════════════════════════════════════
    Config
@@ -294,6 +296,38 @@ export default function TicketPrint({ orderId, brandName = "Cuisine" }: Props) {
           </div>
           <RuleDouble />
         </div>
+
+        {/* ═══ Special flags banner ═══ */}
+        {order.flags && order.flags.length > 0 && (
+          <div
+            style={{
+              marginTop: 8,
+              marginBottom: 6,
+              border: "2px solid #000",
+              padding: "6px 4px",
+              textAlign: "center",
+            }}
+          >
+            {(order.flags as OrderFlag[]).map((flag) => {
+              const meta = ORDER_FLAGS_META[flag];
+              if (!meta) return null;
+              return (
+                <div
+                  key={flag}
+                  style={{
+                    fontSize: 17,
+                    fontWeight: 900,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    margin: "2px 0",
+                  }}
+                >
+                  ▶ {meta.label.toUpperCase()} ◀
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* ═══ Meta ═══ */}
         <div style={{ marginTop: 8, marginBottom: 6 }}>

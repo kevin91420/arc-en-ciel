@@ -49,6 +49,8 @@ export async function GET() {
       feature_terrace: s.feature_terrace,
       feature_pmr: s.feature_pmr,
       feature_halal: s.feature_halal,
+      feature_runner_tickets: s.feature_runner_tickets,
+      feature_special_flags: s.feature_special_flags,
       updated_at: s.updated_at,
     };
     return NextResponse.json(publicSafe, {

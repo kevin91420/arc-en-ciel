@@ -55,6 +55,8 @@ const ALLOWED_KEYS = [
   "feature_terrace",
   "feature_pmr",
   "feature_halal",
+  "feature_runner_tickets",
+  "feature_special_flags",
   // Financial
   "tax_rate",
   // Legal

@@ -16,9 +16,16 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CARTE } from "@/data/carte";
-import type { OrderItem, OrderWithItems, PaymentMethod } from "@/lib/db/pos-types";
+import type {
+  OrderItem,
+  OrderWithItems,
+  PaymentMethod,
+  OrderFlag,
+} from "@/lib/db/pos-types";
+import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { useEightySixList } from "@/lib/hooks/useEightySixList";
+import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import {
   COURSE_ICONS,
@@ -116,6 +123,9 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   );
   const pulseTick = useRef(0);
   const eightySixSet = useEightySixList();
+  const branding = useRestaurantBranding();
+  const flagsEnabled = branding.feature_special_flags !== false;
+  const activeFlags = (order.flags ?? []) as OrderFlag[];
 
   /* Keep the server state fresh without thrash. */
   const refresh = useCallback(async () => {
@@ -349,6 +359,70 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     }
   }
 
+  /** Toggle a special flag (Rush / Allergy / Birthday / VIP). Optimistic
+   * update so the chip pops instantly under the server's thumb. */
+  async function toggleFlag(flag: OrderFlag) {
+    if (busy) return;
+    const has = activeFlags.includes(flag);
+    const next = has
+      ? activeFlags.filter((f) => f !== flag)
+      : [...activeFlags, flag];
+    /* Optimistic */
+    onChange({ ...order, flags: next });
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/staff/orders/${order.id}/flags`, {
+        method: "PATCH",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flags: next }),
+      });
+      if (res.ok) {
+        onChange((await res.json()) as OrderWithItems);
+      } else {
+        /* Roll back. */
+        onChange({ ...order, flags: activeFlags });
+      }
+    } catch {
+      onChange({ ...order, flags: activeFlags });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ackItem(item: OrderItem) {
+    if (busy) return;
+    if (item.status !== "ready") return;
+    setBusy(true);
+    /* Optimistic — paint the row as acknowledged immediately. */
+    const optimistic: OrderWithItems = {
+      ...order,
+      items: items.map((it) =>
+        it.id === item.id
+          ? { ...it, acknowledged_at: new Date().toISOString() }
+          : it
+      ),
+    };
+    onChange(optimistic);
+    try {
+      const res = await fetch(
+        `/api/staff/orders/${order.id}/items/${item.id}/ack`,
+        {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        }
+      );
+      if (res.ok) onChange(await res.json());
+      else await refresh();
+    } catch {
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function fireCourse(course: Course) {
     if (busy) return;
     setBusy(true);
@@ -490,6 +564,44 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
           </div>
         </div>
 
+        {flagsEnabled && (
+          <div className="flex items-center gap-1 ml-1">
+            {(Object.entries(ORDER_FLAGS_META) as [OrderFlag, typeof ORDER_FLAGS_META[OrderFlag]][]).map(
+              ([flag, meta]) => {
+                const active = activeFlags.includes(flag);
+                return (
+                  <button
+                    key={flag}
+                    type="button"
+                    onClick={() => toggleFlag(flag)}
+                    disabled={busy}
+                    title={meta.description}
+                    aria-label={`Marquer ${meta.label}`}
+                    aria-pressed={active}
+                    className={[
+                      "h-9 w-9 rounded-full border text-base flex items-center justify-center transition active:scale-95",
+                      active
+                        ? "border-transparent shadow-md text-white"
+                        : "border-terracotta/35 text-brown-light/70 hover:text-brown hover:border-terracotta/70 bg-cream",
+                      busy ? "opacity-60" : "",
+                    ].join(" ")}
+                    style={
+                      active
+                        ? {
+                            backgroundColor: meta.tone,
+                            boxShadow: `0 0 0 2px ${meta.tone}33`,
+                          }
+                        : undefined
+                    }
+                  >
+                    <span aria-hidden>{meta.icon}</span>
+                  </button>
+                );
+              }
+            )}
+          </div>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
           {order.fired_at && order.status !== "paid" && order.status !== "cancelled" && (
             <button
@@ -540,6 +652,24 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
             )}
           </div>
 
+          {flagsEnabled && activeFlags.length > 0 && (
+            <div className="px-4 md:px-6 py-2 border-b border-terracotta/20 bg-cream-dark/40 flex flex-wrap items-center gap-1.5">
+              {activeFlags.map((flag) => {
+                const meta = ORDER_FLAGS_META[flag];
+                return (
+                  <span
+                    key={flag}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider text-white shadow-sm"
+                    style={{ backgroundColor: meta.tone }}
+                  >
+                    <span aria-hidden>{meta.icon}</span>
+                    {meta.label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4">
             {items.length === 0 ? (
               <div className="py-16 text-center">
@@ -561,6 +691,7 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
                       onBump={(d) => bumpQuantity(item, d)}
                       onOpenModifier={() => setModifierTarget(item)}
                       onRemove={() => removeItem(item)}
+                      onAck={() => ackItem(item)}
                       busy={busy}
                       pulseTick={
                         pulseTarget && pulseTarget.id === item.id
@@ -853,6 +984,7 @@ function OrderLine({
   onBump,
   onOpenModifier,
   onRemove,
+  onAck,
   busy,
   pulseTick,
 }: {
@@ -863,6 +995,7 @@ function OrderLine({
   onBump: (delta: 1 | -1) => void;
   onOpenModifier: () => void;
   onRemove: () => void;
+  onAck: () => void;
   busy: boolean;
   /* Monotonic counter incremented by the parent each time this row's quantity
    * was bumped via a merge. Zero means "no pulse queued". */
@@ -870,6 +1003,8 @@ function OrderLine({
 }) {
   const s = ITEM_STATUS_STYLES[item.status];
   const canEdit = item.status === "pending";
+  const isReadyNotAck = item.status === "ready" && !item.acknowledged_at;
+  const isAcked = item.status === "ready" && Boolean(item.acknowledged_at);
 
   const thumb = MENU_IMAGE_BY_ID[item.menu_item_id];
 
@@ -922,9 +1057,9 @@ function OrderLine({
             </p>
           </div>
 
-          <div className="mt-1 flex items-center gap-2 text-[11px]">
+          <div className="mt-1 flex items-center gap-2 text-[11px] flex-wrap">
             <span className={`font-semibold uppercase tracking-[0.15em] ${s.text}`}>
-              {s.label}
+              {isAcked ? "Pris" : s.label}
             </span>
             <span className="text-brown-light/60">·</span>
             <span className="text-brown-light">
@@ -934,6 +1069,11 @@ function OrderLine({
             <span className="text-brown-light uppercase tracking-wider">
               {item.station}
             </span>
+            {isAcked && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#6B8E23]/15 text-[#4a6518] font-bold uppercase tracking-wider text-[9px]">
+                ✓ Parti en salle
+              </span>
+            )}
           </div>
 
           {item.modifiers && item.modifiers.length > 0 && (
@@ -1000,6 +1140,26 @@ function OrderLine({
         >
           Modifier
         </button>
+
+        {isReadyNotAck && (
+          <button
+            onClick={onAck}
+            disabled={busy}
+            className="px-3 h-8 rounded-lg bg-[#6B8E23] text-cream text-xs font-bold hover:bg-[#5a7a1d] disabled:opacity-60 transition active:scale-95 inline-flex items-center gap-1.5"
+            title="Marquer comme pris (entre cuisine et table)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5">
+              <path
+                d="M5 12l5 5L20 7"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Pris
+          </button>
+        )}
 
         <div className="ml-auto">
           {canEdit ? (
