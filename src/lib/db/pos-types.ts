@@ -129,6 +129,32 @@ export interface OrderWithItems extends Order {
   staff_color?: string;
 }
 
+/** Single payment row — an order can have N of these (split par items, par
+ * couverts, ou paiement complet). When the sum reaches order.total_cents,
+ * a DB trigger flips the order to status='paid'. */
+export interface OrderPayment {
+  id: string;
+  order_id: string;
+  amount_cents: number;
+  tip_cents: number;
+  method: PaymentMethod;
+  /** Soft link to the items this payment covered. UI uses it to know what's
+   * still due — we never mutate order_items from a payment row. */
+  item_ids: string[];
+  staff_id?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface CreatePaymentPayload {
+  amount_cents: number;
+  tip_cents?: number;
+  method: PaymentMethod;
+  item_ids?: string[];
+  staff_id?: string;
+  notes?: string;
+}
+
 /* ── Payloads ──────────────────────────────────────────── */
 
 export interface CreateOrderPayload {

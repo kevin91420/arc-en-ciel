@@ -38,14 +38,32 @@ type TileState =
   | "occupee" /* open, nothing fired yet */
   | "cuisine" /* fired, items cooking */
   | "prete" /* at least one item ready */
-  | "servie"; /* all items served, awaiting payment */
+  | "servie" /* all items served, mealtime in progress (blue) */
+  | "encaisser"; /* all items served + addition demandée → caissier flag */
 
+/* Derive tile state from item statuses, not just order.status — this is more
+ * accurate (a 'fired' order whose items are all ready should show ready, not
+ * cuisine). Cancelled items are ignored. */
 function deriveTileState(order: OrderWithItems | undefined): TileState {
   if (!order) return "libre";
-  if (order.status === "ready") return "prete";
-  if (order.items.some((i) => i.status === "ready")) return "prete";
-  if (order.status === "fired") return "cuisine";
-  if (order.status === "served") return "servie";
+  const active = order.items.filter((i) => i.status !== "cancelled");
+  if (active.length === 0) return "occupee";
+
+  /* Servir prime sur tout — chaque seconde compte côté chrono. */
+  if (active.some((i) => i.status === "ready" && !i.acknowledged_at))
+    return "prete";
+  /* Tous les items finis (servi en salle ou pris en compte) → bleu. */
+  if (
+    active.every(
+      (i) =>
+        i.status === "served" ||
+        (i.status === "ready" && i.acknowledged_at)
+    )
+  )
+    return "servie";
+  /* Mix : au moins un encore en cuisine. */
+  if (active.some((i) => i.status === "cooking" || i.status === "pending"))
+    return "cuisine";
   return "occupee";
 }
 
@@ -90,11 +108,18 @@ const TILE_STYLES: Record<
     pulse: true,
   },
   servie: {
-    bg: "bg-brown/5",
-    border: "border-brown-light/40",
+    bg: "bg-sky-100",
+    border: "border-sky-400",
+    ink: "text-brown",
+    accent: "text-sky-700",
+    label: "🍴 Repas en cours",
+  },
+  encaisser: {
+    bg: "bg-brown/10",
+    border: "border-brown-light/50",
     ink: "text-brown",
     accent: "text-brown-light",
-    label: "À encaisser",
+    label: "💳 À encaisser",
   },
 };
 
@@ -721,7 +746,9 @@ function TableTile({
                   ? "bg-[#E67E22]/15 text-[#C56A19]"
                   : state === "prete"
                     ? "bg-green-500 text-white"
-                    : "bg-brown/10 text-brown-light",
+                    : state === "servie"
+                      ? "bg-sky-500 text-white"
+                      : "bg-brown/15 text-brown-light",
           ].join(" ")}
         >
           {s.label}

@@ -9,6 +9,8 @@ import type {
   OrderItem,
   OrderWithItems,
   OrderStatus,
+  OrderPayment,
+  CreatePaymentPayload,
   KitchenTicket,
   ServiceStats,
   CreateOrderPayload,
@@ -445,6 +447,44 @@ export async function payOrder(
       paid_at: new Date().toISOString(),
     }),
   });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ORDER PAYMENTS — split par items / split par couverts (multi-row)
+   ═══════════════════════════════════════════════════════════ */
+
+export async function listPaymentsForOrder(
+  orderId: string
+): Promise<OrderPayment[]> {
+  if (!USE_SUPABASE) return [];
+  return sb<OrderPayment[]>(
+    `order_payments?select=*&order_id=eq.${orderId}&order=created_at.asc`
+  );
+}
+
+export async function addPayment(
+  orderId: string,
+  payload: CreatePaymentPayload
+): Promise<OrderPayment> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const [row] = await sb<OrderPayment[]>("order_payments", {
+    method: "POST",
+    body: JSON.stringify({
+      order_id: orderId,
+      amount_cents: Math.round(payload.amount_cents),
+      tip_cents: Math.max(0, Math.round(payload.tip_cents ?? 0)),
+      method: payload.method,
+      item_ids: payload.item_ids ?? [],
+      staff_id: payload.staff_id ?? null,
+      notes: payload.notes ?? null,
+    }),
+  });
+  return row;
+}
+
+export async function deletePayment(paymentId: string): Promise<void> {
+  if (!USE_SUPABASE) return;
+  await sb(`order_payments?id=eq.${paymentId}`, { method: "DELETE" });
 }
 
 async function recomputeOrderTotals(orderId: string) {
