@@ -7,7 +7,11 @@
 
 import type { MenuCategory, MenuItem } from "@/data/carte";
 import type { Station } from "@/lib/db/pos-types";
-import type { MenuCategoryFull } from "@/lib/db/menu-types";
+import type {
+  MenuCategoryFull,
+  MenuVariantRow,
+  MenuModifierRow,
+} from "@/lib/db/menu-types";
 import { parsePriceToCents } from "@/lib/format";
 
 function fmtFR(cents: number): string {
@@ -52,6 +56,8 @@ export interface PosMenuItem {
   popular?: boolean;
   chef?: boolean;
   tags?: MenuItem["tags"];
+  variants?: MenuVariantRow[];
+  modifiers?: MenuModifierRow[];
 }
 
 export interface PosMenuCategory {
@@ -129,6 +135,8 @@ export function toPosCatalogFromDb(
           popular: it.popular,
           chef: it.chef,
           tags: it.tags as MenuItem["tags"],
+          variants: it.variants ?? [],
+          modifiers: it.modifiers ?? [],
         })),
     }));
 }

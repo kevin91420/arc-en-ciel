@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import type { DashboardStats } from "@/lib/db/types";
 import { formatCents, formatFrenchDateTime, relativeFr } from "./_lib/format";
+import StaffStatsWidget from "@/components/StaffStatsWidget";
 
 const REFRESH_MS = 15_000;
 
@@ -95,6 +96,9 @@ export default function AdminHomePage() {
           Aujourd&apos;hui au restaurant
         </h1>
       </div>
+
+      {/* Live staff performance — picks up from /api/admin/z-report. */}
+      <StaffStatsWidget />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

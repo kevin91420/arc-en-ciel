@@ -124,6 +124,7 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   );
   const [busy, setBusy] = useState(false);
   const [modifierTarget, setModifierTarget] = useState<OrderItem | null>(null);
+  const [optionPickerTarget, setOptionPickerTarget] = useState<PosMenuItem | null>(null);
   /* Item id + monotonic tick — each merge bump flashes the row. Using a counter
    * instead of a boolean so back-to-back taps each re-trigger the pulse. */
   const [pulseTarget, setPulseTarget] = useState<{ id: string; tick: number } | null>(
@@ -220,6 +221,19 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   async function addItem(menuItem: PosMenuItem) {
     if (busy || order.status === "paid") return;
 
+    /* If the item carries variants OR paid modifiers, open the picker instead
+     * of adding straight away. Free modifiers (no price delta) and zero-variant
+     * items skip this round-trip. */
+    const hasVariants =
+      Array.isArray(menuItem.variants) && menuItem.variants.length > 0;
+    const hasPaidModifiers =
+      Array.isArray(menuItem.modifiers) &&
+      menuItem.modifiers.some((m) => m.price_delta_cents !== 0);
+    if (hasVariants || hasPaidModifiers) {
+      setOptionPickerTarget(menuItem);
+      return;
+    }
+
     /* Merge path: if there's already a pending line for the same dish with no
      * customisation, bump its quantity instead of duplicating the row. */
     const mergeTarget = findMergeableItem(items, menuItem);
@@ -297,6 +311,73 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     if (res.ok) {
       const fresh = (await res.json()) as OrderWithItems;
       onChange(fresh);
+    }
+  }
+
+  /** Add an item with a chosen variant + selected modifiers. The price_cents
+   * sent to the API is already the final unit price (base + variant + sum of
+   * paid modifiers). The `modifiers` array sent to the kitchen ticket includes
+   * the variant label first so the chef sees "Pizza (Grande)" at a glance. */
+  async function addItemWithOptions(payload: {
+    menuItem: PosMenuItem;
+    variantLabel: string | null;
+    variantDeltaCents: number;
+    modifierSelections: Array<{ label: string; price_delta_cents: number }>;
+    notes?: string;
+  }) {
+    const {
+      menuItem,
+      variantLabel,
+      variantDeltaCents,
+      modifierSelections,
+      notes,
+    } = payload;
+    const finalPrice =
+      menuItem.price_cents +
+      variantDeltaCents +
+      modifierSelections.reduce((s, m) => s + m.price_delta_cents, 0);
+
+    const modifierLabels: string[] = [];
+    if (variantLabel) modifierLabels.push(variantLabel);
+    for (const m of modifierSelections) {
+      modifierLabels.push(
+        m.price_delta_cents > 0
+          ? `${m.label} (+${(m.price_delta_cents / 100).toFixed(2)} €)`
+          : m.price_delta_cents < 0
+            ? `${m.label} (${(m.price_delta_cents / 100).toFixed(2)} €)`
+            : m.label
+      );
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/staff/orders/${order.id}/items`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          items: [
+            {
+              menu_item_id: menuItem.id,
+              menu_item_name: menuItem.name,
+              menu_item_category: menuItem.category_id,
+              price_cents: Math.max(0, Math.round(finalPrice)),
+              quantity: 1,
+              modifiers: modifierLabels,
+              notes: notes?.trim() || undefined,
+              station: menuItem.station,
+            },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const fresh = (await res.json()) as OrderWithItems;
+        onChange(fresh);
+      }
+    } finally {
+      setBusy(false);
+      setOptionPickerTarget(null);
     }
   }
 
@@ -931,6 +1012,20 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
         )}
       </AnimatePresence>
 
+      {/* ─── Option picker (variants + paid modifiers) ──────── */}
+      <AnimatePresence>
+        {optionPickerTarget && (
+          <OptionPickerModal
+            menuItem={optionPickerTarget}
+            busy={busy}
+            onCancel={() => setOptionPickerTarget(null)}
+            onConfirm={(payload) =>
+              addItemWithOptions({ menuItem: optionPickerTarget, ...payload })
+            }
+          />
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
@@ -1264,6 +1359,252 @@ function ModifierSheet({
             className="h-11 px-5 rounded-xl bg-brown text-cream font-medium hover:bg-brown-light transition"
           >
             Terminé
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   OPTION PICKER MODAL — variants + paid modifiers (Sprint 5b)
+   ════════════════════════════════════════════════════════════ */
+function OptionPickerModal({
+  menuItem,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  menuItem: PosMenuItem;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (payload: {
+    variantLabel: string | null;
+    variantDeltaCents: number;
+    modifierSelections: Array<{ label: string; price_delta_cents: number }>;
+    notes?: string;
+  }) => void;
+}) {
+  const variants = menuItem.variants ?? [];
+  const modifiers = menuItem.modifiers ?? [];
+  const hasVariants = variants.length > 0;
+
+  /* Pick the default variant if any, else the first. */
+  const initialVariantId =
+    variants.find((v) => v.is_default)?.id ?? variants[0]?.id ?? null;
+  const [variantId, setVariantId] = useState<string | null>(initialVariantId);
+  const [selectedModifierIds, setSelectedModifierIds] = useState<Set<string>>(
+    new Set(modifiers.filter((m) => m.is_required).map((m) => m.id))
+  );
+  const [notes, setNotes] = useState("");
+
+  const variant = variants.find((v) => v.id === variantId) ?? null;
+  const variantDelta = variant?.price_delta_cents ?? 0;
+  const selectedModifiers = modifiers.filter((m) =>
+    selectedModifierIds.has(m.id)
+  );
+  const total =
+    menuItem.price_cents +
+    variantDelta +
+    selectedModifiers.reduce((s, m) => s + m.price_delta_cents, 0);
+
+  function toggleModifier(id: string, isRequired: boolean) {
+    if (isRequired) return; /* required modifiers can't be unchecked */
+    setSelectedModifierIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function submit() {
+    if (hasVariants && !variant) {
+      alert("Choisis une variante");
+      return;
+    }
+    onConfirm({
+      variantLabel: variant?.label ?? null,
+      variantDeltaCents: variantDelta,
+      modifierSelections: selectedModifiers.map((m) => ({
+        label: m.label,
+        price_delta_cents: m.price_delta_cents,
+      })),
+      notes: notes.trim() || undefined,
+    });
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 bg-brown/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-lg bg-white-warm rounded-2xl shadow-2xl border border-terracotta/40 max-h-[90vh] flex flex-col"
+        role="dialog"
+        aria-modal
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-terracotta/15 flex items-baseline justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-brown-light">
+              Personnaliser
+            </p>
+            <h3 className="font-[family-name:var(--font-display)] text-xl text-brown font-semibold">
+              {menuItem.name}
+            </h3>
+          </div>
+          <button
+            onClick={onCancel}
+            aria-label="Fermer"
+            className="w-9 h-9 rounded-full hover:bg-brown/10 text-brown-light transition"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {hasVariants && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold mb-2">
+                Choix de variante
+              </p>
+              <div className="space-y-1.5">
+                {variants.map((v) => {
+                  const checked = variantId === v.id;
+                  const delta = v.price_delta_cents;
+                  return (
+                    <label
+                      key={v.id}
+                      className={[
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 cursor-pointer transition",
+                        checked
+                          ? "bg-gold/15 border-gold"
+                          : "bg-cream border-terracotta/25 hover:border-terracotta/50",
+                      ].join(" ")}
+                    >
+                      <input
+                        type="radio"
+                        name="variant"
+                        checked={checked}
+                        onChange={() => setVariantId(v.id)}
+                        className="w-4 h-4 accent-gold"
+                      />
+                      <span className="flex-1 text-sm font-semibold text-brown">
+                        {v.label}
+                        {v.is_default && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wider text-gold font-bold">
+                            ★ Défaut
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm font-bold text-brown tabular-nums">
+                        {delta === 0
+                          ? "—"
+                          : `${delta > 0 ? "+" : ""}${formatCents(delta)}`}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {modifiers.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold mb-2">
+                Suppléments / options
+              </p>
+              <div className="space-y-1.5">
+                {modifiers.map((m) => {
+                  const checked = selectedModifierIds.has(m.id);
+                  return (
+                    <label
+                      key={m.id}
+                      className={[
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition",
+                        m.is_required
+                          ? "bg-cream-dark/40 border-terracotta/30 cursor-default"
+                          : "cursor-pointer " +
+                            (checked
+                              ? "bg-gold/15 border-gold"
+                              : "bg-cream border-terracotta/25 hover:border-terracotta/50"),
+                      ].join(" ")}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={m.is_required}
+                        onChange={() => toggleModifier(m.id, m.is_required)}
+                        className="w-4 h-4 accent-gold"
+                      />
+                      <span className="flex-1 text-sm font-semibold text-brown">
+                        {m.label}
+                        {m.is_required && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wider bg-brown text-cream px-1.5 py-0.5 rounded">
+                            Obligatoire
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm font-bold text-brown tabular-nums">
+                        {m.price_delta_cents === 0
+                          ? "—"
+                          : `${m.price_delta_cents > 0 ? "+" : ""}${formatCents(m.price_delta_cents)}`}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold mb-2">
+              Note libre (optionnel)
+            </p>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Cuisson : à point · Sans sauce…"
+              maxLength={200}
+              className="w-full px-3 py-2.5 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold"
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-terracotta/15 flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+              Total
+            </p>
+            <p className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown tabular-nums">
+              {formatCents(total)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy}
+            className="h-11 px-5 rounded-xl bg-brown text-cream text-sm font-bold hover:bg-brown-light transition disabled:opacity-50 active:scale-95 inline-flex items-center gap-2"
+          >
+            ➕ Ajouter
           </button>
         </div>
       </motion.div>

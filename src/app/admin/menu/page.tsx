@@ -57,6 +57,20 @@ type ItemDraft = {
   chef: boolean;
   tags: DietaryTag[];
   active: boolean;
+  variants: VariantDraft[];
+  modifiers: ModifierDraft[];
+};
+
+type VariantDraft = {
+  label: string;
+  price_delta_cents: number;
+  is_default: boolean;
+};
+
+type ModifierDraft = {
+  label: string;
+  price_delta_cents: number;
+  is_required: boolean;
 };
 
 type CategoryDraft = {
@@ -143,19 +157,72 @@ export default function MenuEditorPage() {
   async function saveItem(draft: ItemDraft) {
     setBusy(true);
     try {
+      const { variants, modifiers, ...itemPayload } = draft;
       const res = await fetch(`/api/admin/menu/items`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...draft, position: 999 }),
+        body: JSON.stringify({ ...itemPayload, position: 999 }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${res.status}`);
       }
+      /* Persist variants + modifiers as a single replace-set on the same id. */
+      await Promise.all([
+        fetch(`/api/admin/menu/items/${draft.id}/variants`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variants }),
+        }),
+        fetch(`/api/admin/menu/items/${draft.id}/modifiers`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modifiers }),
+        }),
+      ]);
       await refresh();
       flashToast("Plat enregistré ✓");
       setItemModal(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function patchItemAndRelations(
+    id: string,
+    patch: Partial<MenuItemRow>,
+    variants: VariantDraft[],
+    modifiers: ModifierDraft[]
+  ) {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/menu/items/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await Promise.all([
+        fetch(`/api/admin/menu/items/${id}/variants`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variants }),
+        }),
+        fetch(`/api/admin/menu/items/${id}/modifiers`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modifiers }),
+        }),
+      ]);
+      await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -421,9 +488,14 @@ export default function MenuEditorPage() {
             onCancel={() => setItemModal(null)}
             onSave={async (draft) => {
               if (itemModal.mode === "edit") {
-                const { id: _id, ...rest } = draft;
+                const { id: _id, variants, modifiers, ...rest } = draft;
                 void _id;
-                await patchItem(itemModal.item.id, rest);
+                await patchItemAndRelations(
+                  itemModal.item.id,
+                  rest,
+                  variants,
+                  modifiers
+                );
                 setItemModal(null);
                 flashToast("Plat mis à jour ✓");
               } else {
@@ -802,6 +874,22 @@ function ItemEditModal({
   const [tags, setTags] = useState<DietaryTag[]>(initial?.tags ?? []);
   const [active, setActive] = useState(initial?.active ?? true);
   const [chosenCategoryId, setChosenCategoryId] = useState(categoryId);
+  const [variants, setVariants] = useState<VariantDraft[]>(
+    () =>
+      (initial?.variants ?? []).map((v) => ({
+        label: v.label,
+        price_delta_cents: v.price_delta_cents,
+        is_default: v.is_default,
+      }))
+  );
+  const [modifiers, setModifiers] = useState<ModifierDraft[]>(
+    () =>
+      (initial?.modifiers ?? []).map((m) => ({
+        label: m.label,
+        price_delta_cents: m.price_delta_cents,
+        is_required: m.is_required,
+      }))
+  );
 
   /* Auto-slug from name when creating. */
   useEffect(() => {
@@ -839,6 +927,8 @@ function ItemEditModal({
       chef,
       tags,
       active,
+      variants: variants.filter((v) => v.label.trim().length > 0),
+      modifiers: modifiers.filter((m) => m.label.trim().length > 0),
     });
   }
 
@@ -1014,6 +1104,208 @@ function ItemEditModal({
                 ))}
               </div>
             </Field>
+
+            {/* ── Variantes (taille / déclinaison) ── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-brown-light/80">
+                  Variantes (taille S/M/L, déclinaisons)
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVariants((prev) => [
+                      ...prev,
+                      {
+                        label: "",
+                        price_delta_cents: 0,
+                        is_default: prev.length === 0,
+                      },
+                    ])
+                  }
+                  className="text-xs text-brown font-bold hover:text-gold inline-flex items-center gap-1"
+                >
+                  <span className="text-base leading-none">+</span> Ajouter
+                </button>
+              </div>
+              {variants.length === 0 ? (
+                <p className="text-[11px] text-brown-light/70 italic px-2 py-2">
+                  Aucune variante. Le plat se vend au prix unique
+                  ci-dessus.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {variants.map((v, i) => (
+                    <li
+                      key={i}
+                      className="grid grid-cols-[1fr_120px_auto_auto] gap-2 items-center"
+                    >
+                      <input
+                        value={v.label}
+                        onChange={(e) =>
+                          setVariants((prev) =>
+                            prev.map((x, j) =>
+                              j === i ? { ...x, label: e.target.value } : x
+                            )
+                          )
+                        }
+                        placeholder={`Variante ${i + 1}`}
+                        maxLength={40}
+                        className={`${fieldCls} text-sm`}
+                      />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={(v.price_delta_cents / 100).toString()}
+                          onChange={(e) => {
+                            const cents = Math.round(
+                              Number(e.target.value || 0) * 100
+                            );
+                            setVariants((prev) =>
+                              prev.map((x, j) =>
+                                j === i
+                                  ? { ...x, price_delta_cents: cents }
+                                  : x
+                              )
+                            );
+                          }}
+                          className={`${fieldCls} text-sm tabular-nums pr-7`}
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-brown-light text-xs">
+                          €
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVariants((prev) =>
+                            prev.map((x, j) => ({
+                              ...x,
+                              is_default: j === i,
+                            }))
+                          )
+                        }
+                        className={[
+                          "h-9 px-2 rounded text-[10px] font-bold uppercase tracking-wider transition",
+                          v.is_default
+                            ? "bg-gold text-brown"
+                            : "bg-cream text-brown-light hover:text-brown",
+                        ].join(" ")}
+                        title="Marquer comme défaut"
+                      >
+                        {v.is_default ? "★ Défaut" : "Défaut ?"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVariants((prev) => prev.filter((_, j) => j !== i))
+                        }
+                        className="w-8 h-8 rounded-full text-brown-light hover:text-red hover:bg-red/10 transition flex items-center justify-center"
+                        title="Supprimer"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-[11px] text-brown-light/60">
+                Le prix delta s&apos;ajoute au prix de base. Ex : Petite −2,00 €,
+                Grande +3,00 €.
+              </p>
+            </div>
+
+            {/* ── Suppléments tarifés ── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-brown-light/80">
+                  Suppléments / options
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModifiers((prev) => [
+                      ...prev,
+                      {
+                        label: "",
+                        price_delta_cents: 0,
+                        is_required: false,
+                      },
+                    ])
+                  }
+                  className="text-xs text-brown font-bold hover:text-gold inline-flex items-center gap-1"
+                >
+                  <span className="text-base leading-none">+</span> Ajouter
+                </button>
+              </div>
+              {modifiers.length === 0 ? (
+                <p className="text-[11px] text-brown-light/70 italic px-2 py-2">
+                  Pas de supplément. Le serveur peut quand même ajouter des
+                  notes au moment de la commande.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {modifiers.map((m, i) => (
+                    <li
+                      key={i}
+                      className="grid grid-cols-[1fr_120px_auto] gap-2 items-center"
+                    >
+                      <input
+                        value={m.label}
+                        onChange={(e) =>
+                          setModifiers((prev) =>
+                            prev.map((x, j) =>
+                              j === i ? { ...x, label: e.target.value } : x
+                            )
+                          )
+                        }
+                        placeholder={`Supplément ${i + 1}`}
+                        maxLength={40}
+                        className={`${fieldCls} text-sm`}
+                      />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={(m.price_delta_cents / 100).toString()}
+                          onChange={(e) => {
+                            const cents = Math.round(
+                              Number(e.target.value || 0) * 100
+                            );
+                            setModifiers((prev) =>
+                              prev.map((x, j) =>
+                                j === i
+                                  ? { ...x, price_delta_cents: cents }
+                                  : x
+                              )
+                            );
+                          }}
+                          className={`${fieldCls} text-sm tabular-nums pr-7`}
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-brown-light text-xs">
+                          €
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setModifiers((prev) => prev.filter((_, j) => j !== i))
+                        }
+                        className="w-8 h-8 rounded-full text-brown-light hover:text-red hover:bg-red/10 transition flex items-center justify-center"
+                        title="Supprimer"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-[11px] text-brown-light/60">
+                Ex : Extra fromage +2,00 € / Sans oignons 0,00 €. Le serveur
+                pourra cocher ces options au moment d&apos;ajouter le plat.
+              </p>
+            </div>
           </div>
 
           <div className="px-5 py-3 border-t border-terracotta/20 flex items-center justify-end gap-2">
