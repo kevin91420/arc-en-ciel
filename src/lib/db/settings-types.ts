@@ -12,12 +12,25 @@ export interface OpeningHour {
  * `number` is the stable DB reference (int, used in orders.table_number).
  * `label` is the free-text name displayed to staff ("T1", "Terrasse 2", "Bar").
  * `zone` lets operators group tables by area (Salle, Terrasse, Étage, Bar…).
+ *
+ * Geometry fields (Sprint 6) — when provided, the floor plan switches to a
+ * 2D canvas view. Coordinates are abstract grid units (1 unit ≈ 40 px) so the
+ * same layout looks fine on tablet and desktop.
  */
+export type TableShape = "round" | "square" | "rect";
+
 export interface TableConfig {
   number: number;
   label: string;
   capacity: number;
   zone?: string | null;
+  /* 2D plan coords. Optional — falls back to grid if any are missing. */
+  x?: number;
+  y?: number;
+  width?: number;   // grid units, default depends on shape
+  height?: number;  // grid units
+  shape?: TableShape;
+  rotation?: number; // degrees, default 0
 }
 
 export interface RestaurantSettings {
@@ -74,6 +87,9 @@ export interface RestaurantSettings {
   // Service flow (Sprint 4) — opt-in chrome
   feature_runner_tickets: boolean; // auto-print runner ticket when item ready
   feature_special_flags: boolean;  // expose Rush/Allergie/Anniv/VIP toggles
+
+  // Setup wizard flag (Sprint 6) — false on a brand new tenant → /onboarding
+  setup_completed?: boolean;
 
   // Tables (floor plan — white-label: any count, any name)
   tables: TableConfig[];
@@ -147,6 +163,7 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
   feature_halal: true,
   feature_runner_tickets: false,
   feature_special_flags: true,
+  setup_completed: false,
   tables: Array.from({ length: 10 }, (_, i) => ({
     number: i + 1,
     label: `T${i + 1}`,

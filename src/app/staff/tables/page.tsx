@@ -21,8 +21,10 @@ import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import type { OrderWithItems } from "@/lib/db/pos-types";
 import type { TableConfig } from "@/lib/db/settings-types";
+import TablePlanCanvas from "@/components/TablePlanCanvas";
 
 const NOTIF_KEY = "arc-staff-notif";
+const VIEW_KEY = "arc-staff-tables-view";
 
 type TabId = "salle" | "emporter" | "livraison";
 
@@ -136,8 +138,27 @@ export default function TablesPage() {
   >(null);
   const [notifOn, setNotifOn] = useState(true);
   const [staffId, setStaffId] = useState<string | null>(null);
+  const [view, setView] = useState<"grid" | "plan">("grid");
   const knownReadyItems = useRef<Set<string>>(new Set());
   const firstLoadRef = useRef(true);
+
+  /* Restore view preference from localStorage. */
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VIEW_KEY);
+      if (saved === "plan") setView("plan");
+    } catch {}
+  }, []);
+
+  function toggleView() {
+    setView((prev) => {
+      const next = prev === "grid" ? "plan" : "grid";
+      try {
+        window.localStorage.setItem(VIEW_KEY, next);
+      } catch {}
+      return next;
+    });
+  }
 
   /* Restore notification preference from localStorage. Default ON. */
   useEffect(() => {
@@ -370,6 +391,22 @@ export default function TablesPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={toggleView}
+            title={
+              view === "grid"
+                ? "Passer en vue plan 2D"
+                : "Passer en vue grille"
+            }
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs font-semibold transition active:scale-95 border bg-cream border-terracotta/30 text-brown-light hover:text-brown"
+          >
+            <span aria-hidden>{view === "grid" ? "🗺" : "▦"}</span>
+            <span className="hidden sm:inline">
+              {view === "grid" ? "Vue plan" : "Vue grille"}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={toggleNotif}
             title={
               notifOn
@@ -472,26 +509,54 @@ export default function TablesPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {visibleTables.map((t) => {
-                const order = orderByTable.get(t.number);
-                const state = deriveTileState(order);
-                return (
-                  <TableTile
-                    key={t.number}
-                    config={t}
-                    state={state}
-                    order={order}
-                    onClick={() => router.push(`/staff/table/${t.number}`)}
-                  />
-                );
-              })}
-              {visibleTables.length === 0 && (
-                <div className="col-span-full p-8 rounded-2xl bg-white-warm border border-terracotta/20 text-center text-sm text-brown-light">
-                  Aucune table dans cette zone.
-                </div>
-              )}
-            </div>
+            {view === "plan" ? (
+              <TablePlanCanvas
+                tables={visibleTables}
+                renderTable={(t) => {
+                  const order = orderByTable.get(t.number);
+                  const state = deriveTileState(order);
+                  const styles = TILE_STYLES[state];
+                  const elapsed = order
+                    ? formatDuration(minutesSince(order.created_at))
+                    : null;
+                  return {
+                    bg: styles.bg,
+                    border: styles.border,
+                    pulse: state === "prete",
+                    label: t.label,
+                    sublabel: order ? (
+                      <>
+                        {order.guest_count}c · {elapsed}
+                      </>
+                    ) : (
+                      <>{t.capacity} pl</>
+                    ),
+                    onClick: () => router.push(`/staff/table/${t.number}`),
+                  };
+                }}
+              />
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {visibleTables.map((t) => {
+                  const order = orderByTable.get(t.number);
+                  const state = deriveTileState(order);
+                  return (
+                    <TableTile
+                      key={t.number}
+                      config={t}
+                      state={state}
+                      order={order}
+                      onClick={() => router.push(`/staff/table/${t.number}`)}
+                    />
+                  );
+                })}
+                {visibleTables.length === 0 && (
+                  <div className="col-span-full p-8 rounded-2xl bg-white-warm border border-terracotta/20 text-center text-sm text-brown-light">
+                    Aucune table dans cette zone.
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
 

@@ -21,6 +21,7 @@ export interface MenuCategoryRow {
   station: Station;
   position: number;
   active: boolean;
+  card_id?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -61,6 +62,46 @@ export interface MenuModifierRow {
   position: number;
 }
 
+/* ─── Multi-cards (Midi / Soir / Weekend / Spéciale) ──────── */
+
+export interface MenuCardRow {
+  id: string;                    // "midi", "soir", "default"
+  name: string;
+  active: boolean;
+  is_default: boolean;
+  schedule_start?: string | null; // "12:00"
+  schedule_end?: string | null;   // "14:30"
+  schedule_days?: string[] | null;// ['mon','tue','wed','thu','fri']
+  position: number;
+}
+
+/* ─── Combos / Formules ──────────────────────────────────── */
+
+export interface MenuComboSlotRow {
+  id: string;
+  combo_id: string;
+  label: string;          // "Entrée", "Plat", "Dessert"
+  item_ids: string[];     // choix possibles parmi le catalogue
+  min_picks: number;
+  max_picks: number;
+  position: number;
+}
+
+export interface MenuComboRow {
+  id: string;
+  card_id: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  image_url?: string | null;
+  active: boolean;
+  position: number;
+}
+
+export interface MenuComboFull extends MenuComboRow {
+  slots: MenuComboSlotRow[];
+}
+
 /** Composite shape returned by /api/menu — ready to render. */
 export interface MenuItemFull extends MenuItemRow {
   variants: MenuVariantRow[];
@@ -70,6 +111,7 @@ export interface MenuItemFull extends MenuItemRow {
 export interface MenuCategoryFull extends MenuCategoryRow {
   items: MenuItemFull[];
   modifiers: MenuModifierRow[];
+  card_id?: string;
 }
 
 export type CreateMenuCategoryPayload = Omit<

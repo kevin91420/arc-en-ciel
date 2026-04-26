@@ -22,6 +22,7 @@ Each script is numbered sequentially (`0001`, `0002`, …) and is safe to re-run
 | `0002_sprint4_service_flow.sql` | 4 | Adds `orders.flags text[]` (rush/allergy/birthday/vip), `order_items.acknowledged_at`, and feature toggles `feature_runner_tickets` (default OFF), `feature_special_flags` (default ON). |
 | `0003_partial_payments.sql` | 4.8 | Creates `order_payments` (multi-payment per order) + auto-finalize trigger. Enables split-par-items at the addition. |
 | `0004_sprint5_menu_cash_cancel.sql` | 5 | Creates `menu_categories`, `menu_items`, `menu_variants`, `menu_modifiers` (DB-backed menu — admin can edit /admin/menu), `cash_sessions` (ouverture/fermeture caisse), `order_cancellations` (annulation/remboursement avec audit). |
+| `0005_sprint6_onboarding_cards_combos_floor.sql` | 6 | Adds `setup_completed` flag, `menu_cards` (multi-cartes Midi/Soir/Weekend), `menu_combos` + `menu_combo_slots` (formules), `order_items.combo_id`. Existing categories are auto-attached to a 'default' card. Plan de salle 2D coordinates store inside `restaurant_settings.tables` JSON (no extra table needed). |
 
 ## After deploy
 

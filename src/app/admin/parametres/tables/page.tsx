@@ -19,7 +19,9 @@ import { AnimatePresence, motion, Reorder } from "framer-motion";
 import type {
   RestaurantSettings,
   TableConfig,
+  TableShape,
 } from "@/lib/db/settings-types";
+import TablePlanCanvas from "@/components/TablePlanCanvas";
 
 const ZONE_PRESETS = ["Salle", "Terrasse", "Bar", "Étage", "Privé"];
 
@@ -53,7 +55,13 @@ export default function TablesConfigPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const addBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  const selectedTable = useMemo(
+    () => tables.find((t) => t.number === selectedNumber) ?? null,
+    [tables, selectedNumber]
+  );
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -239,6 +247,45 @@ export default function TablesConfigPage() {
             </div>
           </div>
         </div>
+      </motion.section>
+
+      {/* ═══════ Plan 2D drag&drop ═══════ */}
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.12 }}
+        className="mb-6"
+      >
+        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown">
+              Plan visuel 2D
+            </h2>
+            <p className="text-xs text-brown-light/80 mt-0.5">
+              Glisse-dépose les tables pour reproduire ton vrai plan de
+              salle. Click sur une table pour changer sa forme et capacité.
+            </p>
+          </div>
+          {selectedTable && (
+            <ShapeToolbar
+              table={selectedTable}
+              onShape={(shape) =>
+                updateRow(selectedTable.uid, { shape })
+              }
+              onClear={() => setSelectedNumber(null)}
+            />
+          )}
+        </div>
+        <TablePlanCanvas
+          tables={tables}
+          interactive
+          selectedNumber={selectedNumber}
+          onSelect={setSelectedNumber}
+          onMove={(number, x, y) => {
+            const t = tables.find((tt) => tt.number === number);
+            if (t) updateRow(t.uid, { x, y });
+          }}
+        />
       </motion.section>
 
       {/* ═══════ List ═══════ */}
@@ -559,6 +606,54 @@ function ZoneInput({
           <option key={z} value={z} />
         ))}
       </datalist>
+    </div>
+  );
+}
+
+/* ─── Shape toolbar (canvas selection) ─── */
+function ShapeToolbar({
+  table,
+  onShape,
+  onClear,
+}: {
+  table: TableConfig;
+  onShape: (shape: TableShape) => void;
+  onClear: () => void;
+}) {
+  const shapes: { key: TableShape; icon: string; label: string }[] = [
+    { key: "round", icon: "⬤", label: "Ronde" },
+    { key: "square", icon: "■", label: "Carrée" },
+    { key: "rect", icon: "▬", label: "Rectangle" },
+  ];
+  const current = table.shape ?? "square";
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full bg-white-warm border border-terracotta/30 px-2 py-1">
+      <span className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold pl-1">
+        {table.label}
+      </span>
+      {shapes.map((s) => (
+        <button
+          key={s.key}
+          type="button"
+          onClick={() => onShape(s.key)}
+          title={s.label}
+          className={[
+            "w-8 h-8 rounded-full flex items-center justify-center transition text-base",
+            current === s.key
+              ? "bg-brown text-cream"
+              : "text-brown-light hover:text-brown hover:bg-cream",
+          ].join(" ")}
+        >
+          {s.icon}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-1 text-[10px] uppercase tracking-wider text-brown-light/70 hover:text-brown px-2 py-1 transition"
+      >
+        ✕
+      </button>
     </div>
   );
 }
