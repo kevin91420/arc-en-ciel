@@ -487,6 +487,88 @@ export async function deletePayment(paymentId: string): Promise<void> {
   await sb(`order_payments?id=eq.${paymentId}`, { method: "DELETE" });
 }
 
+/* ═══════════════════════════════════════════════════════════
+   ORDER HISTORY — paid orders for a day (server + admin views)
+   ═══════════════════════════════════════════════════════════ */
+
+export interface PaidOrderHistoryEntry {
+  order_id: string;
+  table_number: number | null;
+  source: string;
+  guest_count: number;
+  staff_id?: string | null;
+  staff_name?: string;
+  total_cents: number;
+  tip_cents: number;
+  payment_method?: string | null;
+  items_count: number;
+  created_at: string;
+  paid_at: string;
+  duration_minutes: number;
+  flags?: string[];
+}
+
+/** All orders paid on the given day (00:00 → next day 00:00, local TZ). */
+export async function listPaidOrdersForDay(
+  isoDate: string
+): Promise<PaidOrderHistoryEntry[]> {
+  if (!USE_SUPABASE) return [];
+  const start = new Date(`${isoDate}T00:00:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const startISO = start.toISOString();
+  const endISO = end.toISOString();
+
+  const orders = await sb<Order[]>(
+    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}&order=paid_at.desc`
+  );
+  if (orders.length === 0) return [];
+
+  const ids = orders.map((o) => o.id);
+  const items = await sb<Pick<OrderItem, "order_id" | "quantity" | "status">[]>(
+    `order_items?select=order_id,quantity,status&order_id=in.(${ids.map((i) => `"${i}"`).join(",")})`
+  );
+  const itemsCountByOrder = new Map<string, number>();
+  for (const it of items) {
+    if (it.status === "cancelled") continue;
+    itemsCountByOrder.set(
+      it.order_id,
+      (itemsCountByOrder.get(it.order_id) || 0) + it.quantity
+    );
+  }
+
+  const staffIds = [
+    ...new Set(orders.map((o) => o.staff_id).filter(Boolean)),
+  ] as string[];
+  const staffMap = new Map<string, string>();
+  if (staffIds.length > 0) {
+    const staff = await sb<StaffMember[]>(
+      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+    );
+    for (const s of staff) staffMap.set(s.id, s.name);
+  }
+
+  return orders.map((o) => {
+    const start = new Date(o.created_at).getTime();
+    const end = o.paid_at ? new Date(o.paid_at).getTime() : start;
+    return {
+      order_id: o.id,
+      table_number: o.table_number ?? null,
+      source: o.source,
+      guest_count: o.guest_count || 1,
+      staff_id: o.staff_id,
+      staff_name: o.staff_id ? staffMap.get(o.staff_id) : undefined,
+      total_cents: o.total_cents,
+      tip_cents: o.tip_cents || 0,
+      payment_method: o.payment_method ?? null,
+      items_count: itemsCountByOrder.get(o.id) || 0,
+      created_at: o.created_at,
+      paid_at: o.paid_at || o.created_at,
+      duration_minutes: Math.max(0, Math.floor((end - start) / 60000)),
+      flags: (o.flags ?? []) as string[],
+    };
+  });
+}
+
 async function recomputeOrderTotals(orderId: string) {
   if (!USE_SUPABASE) return;
   const items = await sb<OrderItem[]>(

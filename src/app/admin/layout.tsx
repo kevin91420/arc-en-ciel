@@ -125,12 +125,13 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: "/admin/integrations",
-    label: "Intégrations",
+    href: "/admin/historique",
+    label: "Historique",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
-        <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.5 1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.5-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M2 12a10 10 0 0 1 4-8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -152,15 +153,6 @@ const NAV: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
         <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
         <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" stroke="currentColor" strokeWidth="1.6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/admin/economies",
-    label: "Mes économies",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
-        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     ),
   },

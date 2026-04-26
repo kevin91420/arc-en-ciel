@@ -19,7 +19,6 @@ import { CARTE } from "@/data/carte";
 import type {
   OrderItem,
   OrderWithItems,
-  PaymentMethod,
   OrderFlag,
 } from "@/lib/db/pos-types";
 import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
@@ -38,7 +37,6 @@ import {
   toPosCatalog,
   type PosMenuItem,
 } from "../_lib/menu";
-import PaymentModal from "./PaymentModal";
 
 const POS_CATALOG = toPosCatalog(CARTE);
 
@@ -112,10 +110,10 @@ type Props = {
 
 export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const router = useRouter();
+  void router; /* kept for future inline navigations */
   const [activeCategory, setActiveCategory] = useState(POS_CATALOG[0].id);
   const [busy, setBusy] = useState(false);
   const [modifierTarget, setModifierTarget] = useState<OrderItem | null>(null);
-  const [showPayment, setShowPayment] = useState(false);
   /* Item id + monotonic tick — each merge bump flashes the row. Using a counter
    * instead of a boolean so back-to-back taps each re-trigger the pulse. */
   const [pulseTarget, setPulseTarget] = useState<{ id: string; tick: number } | null>(
@@ -503,28 +501,6 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     }
   }
 
-  async function completePayment(
-    method: PaymentMethod,
-    tipCents: number
-  ) {
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/staff/orders/${order.id}/pay`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ method, tip_cents: tipCents }),
-      });
-      if (res.ok) {
-        setShowPayment(false);
-        router.push("/staff/tables");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const elapsed = formatDuration(minutesSince(order.created_at));
 
   /* ═════════════════════════════════════════════════════════ */
@@ -786,17 +762,23 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
                 </svg>
                 Addition
               </Link>
-              <button
-                onClick={() => setShowPayment(true)}
-                disabled={!canPay || busy}
-                className="h-11 rounded-xl bg-brown text-cream text-sm font-semibold hover:bg-brown-light disabled:opacity-40 transition flex items-center justify-center gap-2"
+              <Link
+                href={`/staff/addition/${order.id}`}
+                aria-disabled={!canPay || busy}
+                onClick={(e) => {
+                  if (!canPay || busy) e.preventDefault();
+                }}
+                className={[
+                  "h-11 rounded-xl bg-brown text-cream text-sm font-semibold hover:bg-brown-light transition flex items-center justify-center gap-2",
+                  !canPay || busy ? "opacity-40 pointer-events-none" : "",
+                ].join(" ")}
               >
                 <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
                   <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.8" />
                   <path d="M3 10h18" stroke="currentColor" strokeWidth="1.8" />
                 </svg>
                 Encaisser
-              </button>
+              </Link>
             </div>
           </div>
         </section>
@@ -929,17 +911,6 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ─── Payment modal ───────────────────── */}
-      <AnimatePresence>
-        {showPayment && (
-          <PaymentModal
-            totalCents={totals.total}
-            guestCount={order.guest_count}
-            onClose={() => setShowPayment(false)}
-            onConfirm={completePayment}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
