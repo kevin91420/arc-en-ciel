@@ -63,6 +63,12 @@ create table if not exists restaurant_settings (
   -- 86 list — menu_item ids temporarily out of stock (live propagation)
   eighty_six_list text[] default array[]::text[],
 
+  -- Active menu card (Sprint 6b) — Midi/Soir/Weekend filter
+  active_card_id text default 'default',
+
+  -- Setup wizard flag (Sprint 6)
+  setup_completed boolean default false,
+
   -- Tables (JSON array of TableConfig — white-label floor plan)
   tables jsonb default '[
     {"number":1,"label":"T1","capacity":4,"zone":"Salle"},

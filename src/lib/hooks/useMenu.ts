@@ -14,7 +14,9 @@ import { stationForCategory } from "@/app/staff/_lib/menu";
 import { parsePriceToCents } from "@/lib/format";
 import type {
   DietaryTag,
+  MenuCardRow,
   MenuCategoryFull,
+  MenuComboFull,
   MenuItemFull,
 } from "@/lib/db/menu-types";
 
@@ -147,4 +149,115 @@ export function asEditorialShape(menu: MenuCategoryFull[]): MenuCategory[] {
 export function useEditorialMenu(): MenuCategory[] {
   const { menu } = useMenu();
   return useMemo(() => asEditorialShape(menu), [menu]);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Cards + Combos hooks (Sprint 6b)
+   ═══════════════════════════════════════════════════════════ */
+
+let cardsCache: MenuCardRow[] | null = null;
+let cardsCacheAt = 0;
+
+/** Lists all menu cards (Midi / Soir / Default…). Falls back to the
+ * 'default' card when offline or DB empty. */
+export function useMenuCards(): { cards: MenuCardRow[]; loading: boolean } {
+  const [cards, setCards] = useState<MenuCardRow[]>(cardsCache ?? []);
+  const [loading, setLoading] = useState(cardsCache === null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOnce() {
+      try {
+        if (cardsCache && Date.now() - cardsCacheAt < CACHE_TTL_MS) {
+          if (!cancelled) {
+            setCards(cardsCache);
+            setLoading(false);
+          }
+          return;
+        }
+        const res = await fetch("/api/menu/cards", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { cards: MenuCardRow[] };
+        cardsCache = data.cards;
+        cardsCacheAt = Date.now();
+        if (!cancelled) {
+          setCards(data.cards);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setCards([
+            {
+              id: "default",
+              name: "Carte principale",
+              active: true,
+              is_default: true,
+              position: 0,
+            } as MenuCardRow,
+          ]);
+          setLoading(false);
+        }
+      }
+    }
+    fetchOnce();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { cards, loading };
+}
+
+let combosCache: MenuComboFull[] | null = null;
+let combosCacheAt = 0;
+
+/** Lists active combos for the given card (or all if cardId omitted).
+ * Public read — no auth required. */
+export function useCombos(cardId?: string): {
+  combos: MenuComboFull[];
+  loading: boolean;
+} {
+  const [combos, setCombos] = useState<MenuComboFull[]>(combosCache ?? []);
+  const [loading, setLoading] = useState(combosCache === null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+
+    async function fetchOnce() {
+      try {
+        const cacheKey = cardId ?? "_all";
+        const cached =
+          combosCache !== null && Date.now() - combosCacheAt < CACHE_TTL_MS;
+        const url = cardId
+          ? `/api/menu/combos?card_id=${encodeURIComponent(cardId)}`
+          : "/api/menu/combos";
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { combos: MenuComboFull[] };
+        combosCache = data.combos;
+        combosCacheAt = Date.now();
+        void cacheKey;
+        void cached;
+        if (!cancelled) {
+          setCombos(data.combos);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setCombos([]);
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchOnce();
+    timer = window.setInterval(fetchOnce, POLL_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [cardId]);
+
+  return { combos, loading };
 }

@@ -44,6 +44,8 @@ const ALLOWED_KEYS = [
   "payment_methods",
   // Tables (floor plan)
   "tables",
+  // Active card (Sprint 6b)
+  "active_card_id",
   // 86 list
   "eighty_six_list",
   // Features

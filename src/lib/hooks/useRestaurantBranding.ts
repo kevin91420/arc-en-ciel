@@ -35,6 +35,8 @@ export interface RestaurantBranding {
   /* Service-flow opt-in toggles (Sprint 4). */
   feature_runner_tickets?: boolean;
   feature_special_flags?: boolean;
+  /* Active menu card (Sprint 6b) — drives QR menu / POS catalog filtering. */
+  active_card_id?: string;
 }
 
 /* Build the static fallback once. Subsetting DEFAULT_SETTINGS keeps the bundle
@@ -79,6 +81,7 @@ async function fetchBranding(): Promise<RestaurantBranding> {
       tax_rate: data.tax_rate,
       feature_runner_tickets: Boolean(data.feature_runner_tickets),
       feature_special_flags: data.feature_special_flags !== false,
+      active_card_id: data.active_card_id || "default",
     };
     cacheAt = Date.now();
     return cache;

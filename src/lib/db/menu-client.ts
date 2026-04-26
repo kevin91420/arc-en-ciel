@@ -16,6 +16,9 @@ import type {
   CreateMenuItemPayload,
   MenuCategoryFull,
   MenuCategoryRow,
+  MenuComboFull,
+  MenuComboRow,
+  MenuComboSlotRow,
   MenuItemFull,
   MenuItemRow,
   MenuModifierRow,
@@ -376,6 +379,106 @@ export async function setModifiersForItem(
     position: m.position ?? i,
   }));
   return sb<MenuModifierRow[]>(`menu_modifiers`, {
+    method: "POST",
+    body: JSON.stringify(rows),
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Combos / Formules (Sprint 6b)
+   ═══════════════════════════════════════════════════════════ */
+
+export async function listCombos(
+  options: { cardId?: string; includeInactive?: boolean } = {}
+): Promise<MenuComboFull[]> {
+  if (!USE_SUPABASE) return [];
+  try {
+    const cardClause = options.cardId
+      ? `&card_id=eq.${encodeURIComponent(options.cardId)}`
+      : "";
+    const activeClause = options.includeInactive ? "" : "&active=eq.true";
+    const [combos, slots] = await Promise.all([
+      sb<MenuComboRow[]>(
+        `menu_combos?select=*${activeClause}${cardClause}&order=position.asc`
+      ),
+      sb<MenuComboSlotRow[]>(
+        `menu_combo_slots?select=*&order=position.asc`
+      ),
+    ]);
+    const slotsByCombo = new Map<string, MenuComboSlotRow[]>();
+    for (const s of slots) {
+      if (!slotsByCombo.has(s.combo_id))
+        slotsByCombo.set(s.combo_id, []);
+      slotsByCombo.get(s.combo_id)!.push(s);
+    }
+    return combos.map((c) => ({
+      ...c,
+      slots: slotsByCombo.get(c.id) ?? [],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertCombo(
+  payload: Omit<MenuComboRow, "created_at" | "updated_at">
+): Promise<MenuComboRow> {
+  if (!USE_SUPABASE) throw new Error("Supabase requis");
+  const [row] = await sb<MenuComboRow[]>(`menu_combos`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(payload),
+  });
+  return row;
+}
+
+export async function updateCombo(
+  id: string,
+  patch: Partial<Omit<MenuComboRow, "id" | "created_at" | "updated_at">>
+): Promise<MenuComboRow | null> {
+  if (!USE_SUPABASE) return null;
+  const [row] = await sb<MenuComboRow[]>(
+    `menu_combos?id=eq.${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }
+  );
+  return row ?? null;
+}
+
+export async function deleteCombo(id: string): Promise<void> {
+  if (!USE_SUPABASE) return;
+  await sb(`menu_combos?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function setComboSlots(
+  comboId: string,
+  slots: Array<{
+    label: string;
+    item_ids: string[];
+    min_picks: number;
+    max_picks: number;
+    position?: number;
+  }>
+): Promise<MenuComboSlotRow[]> {
+  if (!USE_SUPABASE) throw new Error("Supabase requis");
+  await sb(
+    `menu_combo_slots?combo_id=eq.${encodeURIComponent(comboId)}`,
+    { method: "DELETE" }
+  );
+  if (slots.length === 0) return [];
+  const rows = slots.map((s, i) => ({
+    combo_id: comboId,
+    label: s.label,
+    item_ids: s.item_ids,
+    min_picks: s.min_picks,
+    max_picks: s.max_picks,
+    position: s.position ?? i,
+  }));
+  return sb<MenuComboSlotRow[]>(`menu_combo_slots`, {
     method: "POST",
     body: JSON.stringify(rows),
   });

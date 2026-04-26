@@ -395,15 +395,24 @@ export default function MenuEditorPage() {
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setCategoryModal({ mode: "create" })}
-          disabled={busy}
-          className="inline-flex items-center gap-2 bg-brown hover:bg-brown-light text-cream text-sm font-bold px-4 py-2.5 rounded-full transition active:scale-95"
-        >
-          <span className="text-lg leading-none">+</span>
-          Nouvelle catégorie
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/menu/combos"
+            className="inline-flex items-center gap-2 bg-cream hover:bg-cream-dark border border-terracotta/30 text-brown text-sm font-bold px-4 py-2.5 rounded-full transition active:scale-95"
+          >
+            <span aria-hidden>🍽</span>
+            Formules
+          </Link>
+          <button
+            type="button"
+            onClick={() => setCategoryModal({ mode: "create" })}
+            disabled={busy}
+            className="inline-flex items-center gap-2 bg-brown hover:bg-brown-light text-cream text-sm font-bold px-4 py-2.5 rounded-full transition active:scale-95"
+          >
+            <span className="text-lg leading-none">+</span>
+            Nouvelle catégorie
+          </button>
+        </div>
       </motion.section>
 
       {error && (

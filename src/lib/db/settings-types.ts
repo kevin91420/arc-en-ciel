@@ -91,6 +91,10 @@ export interface RestaurantSettings {
   // Setup wizard flag (Sprint 6) — false on a brand new tenant → /onboarding
   setup_completed?: boolean;
 
+  // Active card (Sprint 6b) — pointe vers menu_cards.id ; toutes les
+  // surfaces consument cette valeur pour filtrer les catégories.
+  active_card_id?: string;
+
   // Tables (floor plan — white-label: any count, any name)
   tables: TableConfig[];
 
@@ -164,6 +168,7 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
   feature_runner_tickets: false,
   feature_special_flags: true,
   setup_completed: false,
+  active_card_id: "default",
   tables: Array.from({ length: 10 }, (_, i) => ({
     number: i + 1,
     label: `T${i + 1}`,

@@ -21,11 +21,12 @@ import type {
   OrderWithItems,
   OrderFlag,
 } from "@/lib/db/pos-types";
+import type { MenuComboFull } from "@/lib/db/menu-types";
 import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { useEightySixList } from "@/lib/hooks/useEightySixList";
 import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
-import { useMenu } from "@/lib/hooks/useMenu";
+import { useMenu, useCombos } from "@/lib/hooks/useMenu";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import {
   COURSE_ICONS,
@@ -125,6 +126,8 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [modifierTarget, setModifierTarget] = useState<OrderItem | null>(null);
   const [optionPickerTarget, setOptionPickerTarget] = useState<PosMenuItem | null>(null);
+  const [comboPickerTarget, setComboPickerTarget] = useState<MenuComboFull | null>(null);
+  const { combos } = useCombos();
   /* Item id + monotonic tick — each merge bump flashes the row. Using a counter
    * instead of a boolean so back-to-back taps each re-trigger the pulse. */
   const [pulseTarget, setPulseTarget] = useState<{ id: string; tick: number } | null>(
@@ -311,6 +314,63 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
     if (res.ok) {
       const fresh = (await res.json()) as OrderWithItems;
       onChange(fresh);
+    }
+  }
+
+  /** Add a combo (formule) — sends all picked items in one POST. The first
+   * line carries the full combo price, subsequent lines have price_cents = 0
+   * so the bill totals match the combo's flat price. The chef ticket still
+   * sees each plate independently with the combo name in the modifiers. */
+  async function addCombo(
+    combo: MenuComboFull,
+    picks: Record<string, string[]>
+  ) {
+    const flatItems = POS_CATALOG.flatMap((c) => c.items);
+    const itemsPayload: Array<{
+      menu_item_id: string;
+      menu_item_name: string;
+      menu_item_category: string;
+      price_cents: number;
+      quantity: number;
+      modifiers: string[];
+      station: string;
+    }> = [];
+    let priceAssigned = false;
+    for (const slot of combo.slots) {
+      const ids = picks[slot.id] ?? [];
+      for (const id of ids) {
+        const it = flatItems.find((p) => p.id === id);
+        if (!it) continue;
+        itemsPayload.push({
+          menu_item_id: it.id,
+          menu_item_name: it.name,
+          menu_item_category: it.category_id,
+          price_cents: priceAssigned ? 0 : combo.price_cents,
+          quantity: 1,
+          modifiers: [`📦 ${combo.name}`, slot.label],
+          station: it.station,
+        });
+        priceAssigned = true;
+      }
+    }
+    if (itemsPayload.length === 0) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/staff/orders/${order.id}/items`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ items: itemsPayload }),
+      });
+      if (res.ok) {
+        const fresh = (await res.json()) as OrderWithItems;
+        onChange(fresh);
+      }
+    } finally {
+      setBusy(false);
+      setComboPickerTarget(null);
     }
   }
 
@@ -886,6 +946,32 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
 
         {/* Right: menu browser */}
         <section className="flex flex-col min-h-0 bg-white-warm">
+          {/* Combos / Formules — visible quand au moins une formule existe. */}
+          {combos.length > 0 && (
+            <div className="px-3 md:px-4 py-2 border-b border-terracotta/30 bg-cream-dark/30">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light/70 font-bold mb-1.5">
+                📦 Formules
+              </p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {combos.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setComboPickerTarget(c)}
+                    disabled={busy}
+                    className="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gold text-brown text-xs font-bold hover:bg-gold/90 active:scale-95 transition disabled:opacity-50"
+                  >
+                    <span aria-hidden>📦</span>
+                    <span className="truncate max-w-[140px]">{c.name}</span>
+                    <span className="font-[family-name:var(--font-display)] tabular-nums">
+                      {formatCents(c.price_cents)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="px-3 md:px-4 py-3 border-b border-terracotta/30 overflow-x-auto">
             <div className="flex gap-1.5 min-w-max">
               {POS_CATALOG.map((cat) => {
@@ -1022,6 +1108,19 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
             onConfirm={(payload) =>
               addItemWithOptions({ menuItem: optionPickerTarget, ...payload })
             }
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ─── Combo picker (formule à plusieurs slots) ──────── */}
+      <AnimatePresence>
+        {comboPickerTarget && (
+          <ComboPickerModal
+            combo={comboPickerTarget}
+            posCatalog={POS_CATALOG}
+            busy={busy}
+            onCancel={() => setComboPickerTarget(null)}
+            onConfirm={(picks) => addCombo(comboPickerTarget, picks)}
           />
         )}
       </AnimatePresence>
@@ -1605,6 +1704,187 @@ function OptionPickerModal({
             className="h-11 px-5 rounded-xl bg-brown text-cream text-sm font-bold hover:bg-brown-light transition disabled:opacity-50 active:scale-95 inline-flex items-center gap-2"
           >
             ➕ Ajouter
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   COMBO PICKER MODAL — choix slot par slot pour une formule
+   ════════════════════════════════════════════════════════════ */
+function ComboPickerModal({
+  combo,
+  posCatalog,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  combo: MenuComboFull;
+  posCatalog: ReturnType<typeof toPosCatalogFromDb>;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (picks: Record<string, string[]>) => void;
+}) {
+  const flatItems = useMemo(
+    () => posCatalog.flatMap((c) => c.items),
+    [posCatalog]
+  );
+  const [picks, setPicks] = useState<Record<string, string[]>>(() => {
+    const init: Record<string, string[]> = {};
+    for (const slot of combo.slots) init[slot.id] = [];
+    return init;
+  });
+
+  function togglePick(slotId: string, itemId: string, max: number) {
+    setPicks((prev) => {
+      const cur = prev[slotId] ?? [];
+      if (cur.includes(itemId)) {
+        return { ...prev, [slotId]: cur.filter((x) => x !== itemId) };
+      }
+      if (cur.length >= max) {
+        return { ...prev, [slotId]: max === 1 ? [itemId] : [...cur, itemId] };
+      }
+      return { ...prev, [slotId]: [...cur, itemId] };
+    });
+  }
+
+  const ready = combo.slots.every((s) => {
+    const n = picks[s.id]?.length ?? 0;
+    return n >= s.min_picks && n <= s.max_picks;
+  });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 bg-brown/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl bg-white-warm rounded-2xl shadow-2xl border border-terracotta/40 max-h-[90vh] flex flex-col"
+        role="dialog"
+        aria-modal
+      >
+        <div className="px-6 py-4 border-b border-terracotta/15 flex items-baseline justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.18em] text-brown-light">
+              Formule
+            </p>
+            <h3 className="font-[family-name:var(--font-display)] text-2xl text-brown font-bold leading-tight">
+              {combo.name}
+            </h3>
+            {combo.description && (
+              <p className="text-xs text-brown-light/80 mt-1">
+                {combo.description}
+              </p>
+            )}
+          </div>
+          <span className="font-[family-name:var(--font-display)] text-2xl font-bold text-gold tabular-nums flex-shrink-0">
+            {formatCents(combo.price_cents)}
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {combo.slots.map((slot) => {
+            const cur = picks[slot.id] ?? [];
+            const helper =
+              slot.min_picks === slot.max_picks
+                ? `Choisis ${slot.min_picks}`
+                : `Entre ${slot.min_picks} et ${slot.max_picks} choix`;
+            return (
+              <div key={slot.id}>
+                <div className="flex items-baseline justify-between mb-2">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-brown-light/80 font-bold">
+                    {slot.label}
+                  </p>
+                  <span
+                    className={[
+                      "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                      cur.length >= slot.min_picks &&
+                      cur.length <= slot.max_picks
+                        ? "bg-green-100 text-green-700"
+                        : "bg-amber-100 text-amber-700",
+                    ].join(" ")}
+                  >
+                    {cur.length} / {slot.max_picks} · {helper}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {slot.item_ids.map((id) => {
+                    const item = flatItems.find((p) => p.id === id);
+                    if (!item) return null;
+                    const checked = cur.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          togglePick(slot.id, id, slot.max_picks)
+                        }
+                        className={[
+                          "text-left px-3 py-2 rounded-xl border-2 transition flex items-start gap-2",
+                          checked
+                            ? "bg-gold/15 border-gold"
+                            : "bg-cream border-terracotta/25 hover:border-terracotta/50",
+                        ].join(" ")}
+                      >
+                        <span
+                          className={[
+                            "mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                            checked
+                              ? "bg-gold text-brown"
+                              : "border-2 border-brown-light/30",
+                          ].join(" ")}
+                          aria-hidden
+                        >
+                          {checked ? "✓" : ""}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-semibold text-brown leading-tight">
+                            {item.name}
+                          </span>
+                          <span className="block text-[10px] text-brown-light/70">
+                            {item.category_title}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {slot.item_ids.length === 0 && (
+                    <p className="text-[11px] text-amber-700 italic px-2 py-2">
+                      ⚠ Aucun choix dans ce slot — à configurer dans
+                      /admin/menu/combos.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="px-6 py-4 border-t border-terracotta/15 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(picks)}
+            disabled={busy || !ready}
+            className="flex-1 h-11 rounded-xl bg-brown text-cream text-sm font-bold hover:bg-brown-light transition disabled:opacity-40 active:scale-95 inline-flex items-center justify-center gap-2"
+          >
+            ➕ Ajouter la formule · {formatCents(combo.price_cents)}
           </button>
         </div>
       </motion.div>
