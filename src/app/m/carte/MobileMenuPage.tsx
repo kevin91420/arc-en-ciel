@@ -4,10 +4,11 @@ import { useState, useMemo, useEffect, useRef, useCallback, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
+import { TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
 import { formatCents, parsePriceToCents } from "@/lib/format";
 import type { LoyaltyCard, LoyaltyConfig } from "@/lib/db/loyalty-types";
 import { useEightySixList } from "@/lib/hooks/useEightySixList";
+import { useEditorialMenu } from "@/lib/hooks/useMenu";
 
 /* ═══════════════════════════════════════════════════════════
    MOBILE QR MENU — App-like experience for table diners.
@@ -119,9 +120,20 @@ export default function MobileMenuPage({
   const tableFromUrl = searchParams.table;
   const prefersReducedMotion = useReducedMotion();
 
+  const carte = useEditorialMenu();
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DietaryTag | "all">("all");
-  const [activeCategory, setActiveCategory] = useState(CARTE[0].id);
+  const [activeCategory, setActiveCategory] = useState<string>(
+    carte[0]?.id ?? ""
+  );
+
+  /* Keep activeCategory in sync if the menu DB feed updates the category list. */
+  useEffect(() => {
+    if (carte.length === 0) return;
+    if (!carte.find((c) => c.id === activeCategory)) {
+      setActiveCategory(carte[0].id);
+    }
+  }, [carte, activeCategory]);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [callWaiterOpen, setCallWaiterOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -454,19 +466,21 @@ export default function MobileMenuPage({
   /* Filter + search logic */
   const filteredCarte = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return CARTE.map((cat) => ({
-      ...cat,
-      items: cat.items.filter((item) => {
-        if (activeFilter !== "all" && !item.tags?.includes(activeFilter))
-          return false;
-        if (!q) return true;
-        return (
-          item.name.toLowerCase().includes(q) ||
-          item.description.toLowerCase().includes(q)
-        );
-      }),
-    })).filter((cat) => cat.items.length > 0);
-  }, [search, activeFilter]);
+    return carte
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter((item) => {
+          if (activeFilter !== "all" && !item.tags?.includes(activeFilter))
+            return false;
+          if (!q) return true;
+          return (
+            item.name.toLowerCase().includes(q) ||
+            item.description.toLowerCase().includes(q)
+          );
+        }),
+      }))
+      .filter((cat) => cat.items.length > 0);
+  }, [carte, search, activeFilter]);
 
   /* Scroll spy */
   useEffect(() => {
@@ -480,7 +494,7 @@ export default function MobileMenuPage({
       },
       { rootMargin: "-25% 0px -70% 0px" }
     );
-    CARTE.forEach((cat) => {
+    carte.forEach((cat) => {
       const el = document.getElementById(`cat-${cat.id}`);
       if (el) observer.observe(el);
     });
@@ -500,7 +514,7 @@ export default function MobileMenuPage({
     setShowOnboarding(false);
   };
 
-  const totalItems = CARTE.reduce((sum, cat) => sum + cat.items.length, 0);
+  const totalItems = carte.reduce((sum, cat) => sum + cat.items.length, 0);
   const activeFilterMeta = FILTERS.find((f) => f.key === activeFilter);
 
   return (
@@ -606,7 +620,7 @@ export default function MobileMenuPage({
           aria-label="Catégories"
         >
           <ul className="flex items-center gap-1 px-4 py-2 min-w-max">
-            {CARTE.map((cat) => (
+            {carte.map((cat) => (
               <li key={cat.id}>
                 <button
                   onClick={() => scrollToCategory(cat.id)}
@@ -758,7 +772,7 @@ export default function MobileMenuPage({
             onAdd={() => {
               if (eightySixSet.has(selectedItem.id)) return;
               /* Find the category to infer station. */
-              const cat = CARTE.find((c) =>
+              const cat = carte.find((c) =>
                 c.items.some((i) => i.id === selectedItem.id)
               );
               if (cat) addToCart(selectedItem, cat.id);

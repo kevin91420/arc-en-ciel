@@ -18,6 +18,10 @@ import type {
   PaymentMethod,
   Station,
   OrderFlag,
+  OrderCancellation,
+  CancellationReason,
+  RefundMethod,
+  CashSession,
 } from "./pos-types";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -506,6 +510,434 @@ export interface PaidOrderHistoryEntry {
   paid_at: string;
   duration_minutes: number;
   flags?: string[];
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ORDER CANCELLATIONS — annulation + remboursement
+   ═══════════════════════════════════════════════════════════ */
+
+export async function cancelOrder(
+  orderId: string,
+  payload: {
+    reason: CancellationReason;
+    notes?: string;
+    refund_method?: RefundMethod;
+    refund_amount_cents?: number;
+    staff_id?: string;
+  }
+): Promise<OrderCancellation> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const refundMethod = payload.refund_method ?? "none";
+  const refundAmount = Math.max(
+    0,
+    Math.round(payload.refund_amount_cents ?? 0)
+  );
+
+  /* 1. Create the audit row first so we have a permanent trace. */
+  const [row] = await sb<OrderCancellation[]>(`order_cancellations`, {
+    method: "POST",
+    body: JSON.stringify({
+      order_id: orderId,
+      reason: payload.reason,
+      notes: payload.notes ?? null,
+      cancelled_by: payload.staff_id ?? null,
+      refund_method: refundMethod,
+      refund_amount_cents: refundAmount,
+    }),
+  });
+
+  /* 2. Move the order to cancelled status. Cancelled items are skipped by
+   *    every report (subtotal/tax recompute filters them out). */
+  await sb(`orders?id=eq.${orderId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "cancelled",
+      paid_at: null,
+    }),
+  });
+  await sb(`order_items?order_id=eq.${orderId}&status=in.(pending,cooking,ready,served)`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "cancelled" }),
+  });
+
+  /* 3. If a refund was given via cash/card, record it as a negative payment
+   *    so the cash drawer reconciliation reflects the loss. */
+  if (refundAmount > 0 && refundMethod !== "voucher" && refundMethod !== "none") {
+    await sb(`order_payments`, {
+      method: "POST",
+      body: JSON.stringify({
+        order_id: orderId,
+        amount_cents: -refundAmount,
+        tip_cents: 0,
+        method: refundMethod,
+        notes: `Remboursement (${payload.reason})`,
+      }),
+    }).catch(() => null); /* non-fatal */
+  }
+
+  return row;
+}
+
+export async function listCancellationsForOrder(
+  orderId: string
+): Promise<OrderCancellation[]> {
+  if (!USE_SUPABASE) return [];
+  return sb<OrderCancellation[]>(
+    `order_cancellations?select=*&order_id=eq.${orderId}&order=cancelled_at.desc`
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CASH SESSIONS — ouverture / fermeture de caisse
+   ═══════════════════════════════════════════════════════════ */
+
+export async function getCurrentCashSession(): Promise<CashSession | null> {
+  if (!USE_SUPABASE) return null;
+  const rows = await sb<CashSession[]>(
+    `cash_sessions?select=*&closed_at=is.null&order=opened_at.desc&limit=1`
+  );
+  return rows[0] || null;
+}
+
+export async function openCashSession(payload: {
+  opening_amount_cents: number;
+  staff_id?: string;
+  notes?: string;
+}): Promise<CashSession> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  /* Refuse to open a 2nd session while another is still open. */
+  const existing = await getCurrentCashSession();
+  if (existing) {
+    throw new Error("Une session de caisse est déjà ouverte.");
+  }
+  const [row] = await sb<CashSession[]>(`cash_sessions`, {
+    method: "POST",
+    body: JSON.stringify({
+      opening_amount_cents: Math.max(
+        0,
+        Math.round(payload.opening_amount_cents)
+      ),
+      opened_by: payload.staff_id ?? null,
+      notes: payload.notes ?? null,
+    }),
+  });
+  return row;
+}
+
+/** Sum of all cash payments since the session opened (positive = encaissé,
+ * negative = remboursé). */
+export async function computeCashTakingsSinceOpen(
+  sessionOpenedAt: string
+): Promise<number> {
+  if (!USE_SUPABASE) return 0;
+  const rows = await sb<{ amount_cents: number }[]>(
+    `order_payments?select=amount_cents&method=eq.cash&created_at=gte.${encodeURIComponent(sessionOpenedAt)}`
+  );
+  return rows.reduce((s, r) => s + (r.amount_cents || 0), 0);
+}
+
+export async function closeCashSession(
+  sessionId: string,
+  payload: {
+    actual_cash_cents: number;
+    staff_id?: string;
+    notes?: string;
+  }
+): Promise<CashSession> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const [session] = await sb<CashSession[]>(
+    `cash_sessions?select=*&id=eq.${sessionId}&limit=1`
+  );
+  if (!session) throw new Error("Session de caisse introuvable.");
+  if (session.closed_at) throw new Error("Session déjà fermée.");
+
+  const takings = await computeCashTakingsSinceOpen(session.opened_at);
+  const expected = session.opening_amount_cents + takings;
+
+  const [row] = await sb<CashSession[]>(
+    `cash_sessions?id=eq.${sessionId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        closed_at: new Date().toISOString(),
+        expected_cash_cents: expected,
+        actual_cash_cents: Math.max(0, Math.round(payload.actual_cash_cents)),
+        closed_by: payload.staff_id ?? null,
+        notes: payload.notes
+          ? `${session.notes ?? ""}\n[Fermeture] ${payload.notes}`.trim()
+          : session.notes,
+      }),
+    }
+  );
+  return row;
+}
+
+export async function listCashSessions(
+  isoDate: string
+): Promise<CashSession[]> {
+  if (!USE_SUPABASE) return [];
+  const start = new Date(`${isoDate}T00:00:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return sb<CashSession[]>(
+    `cash_sessions?select=*&opened_at=gte.${encodeURIComponent(start.toISOString())}&opened_at=lt.${encodeURIComponent(end.toISOString())}&order=opened_at.asc`
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Z REPORT — rapport de fin de service (jour entier)
+   ═══════════════════════════════════════════════════════════ */
+
+export interface ZReport {
+  date: string;                // YYYY-MM-DD
+  generated_at: string;
+  totals: {
+    orders_count: number;
+    guests_count: number;
+    revenue_ht_cents: number;
+    revenue_ttc_cents: number;
+    tax_cents: number;
+    tip_cents: number;
+    avg_ticket_cents: number;
+    avg_per_guest_cents: number;
+    cancelled_orders: number;
+    refund_total_cents: number;
+  };
+  by_method: Array<{
+    method: string;
+    amount_cents: number;
+    count: number;
+  }>;
+  by_staff: Array<{
+    staff_id: string;
+    staff_name: string;
+    orders_count: number;
+    revenue_cents: number;
+    tip_cents: number;
+  }>;
+  top_items: Array<{
+    menu_item_id: string;
+    menu_item_name: string;
+    quantity: number;
+    revenue_cents: number;
+  }>;
+  by_hour: Array<{
+    hour: number;
+    orders: number;
+    revenue_cents: number;
+  }>;
+  cash_sessions: CashSession[];
+  cancellations: Array<{
+    order_id: string;
+    table_number: number | null;
+    reason: string;
+    refund_amount_cents: number;
+    cancelled_at: string;
+  }>;
+}
+
+export async function getZReport(isoDate: string): Promise<ZReport> {
+  const generated_at = new Date().toISOString();
+  if (!USE_SUPABASE) {
+    return {
+      date: isoDate,
+      generated_at,
+      totals: {
+        orders_count: 0,
+        guests_count: 0,
+        revenue_ht_cents: 0,
+        revenue_ttc_cents: 0,
+        tax_cents: 0,
+        tip_cents: 0,
+        avg_ticket_cents: 0,
+        avg_per_guest_cents: 0,
+        cancelled_orders: 0,
+        refund_total_cents: 0,
+      },
+      by_method: [],
+      by_staff: [],
+      top_items: [],
+      by_hour: [],
+      cash_sessions: [],
+      cancellations: [],
+    };
+  }
+
+  const start = new Date(`${isoDate}T00:00:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const startISO = start.toISOString();
+  const endISO = end.toISOString();
+
+  /* All paid orders of the day. */
+  const orders = await sb<Order[]>(
+    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}&order=paid_at.asc`
+  );
+
+  /* Cancelled orders of the day (audit + refunds). */
+  const cancelled = await sb<Order[]>(
+    `orders?select=*&status=eq.cancelled&updated_at=gte.${encodeURIComponent(startISO)}&updated_at=lt.${encodeURIComponent(endISO)}`
+  );
+  const cancellationDetails = cancelled.length > 0
+    ? await sb<OrderCancellation[]>(
+        `order_cancellations?select=*&order_id=in.(${cancelled.map((o) => `"${o.id}"`).join(",")})`
+      )
+    : [];
+
+  const orderIds = orders.map((o) => o.id);
+
+  /* Items sold (active = not cancelled). */
+  const items = orderIds.length > 0
+    ? await sb<OrderItem[]>(
+        `order_items?select=order_id,menu_item_id,menu_item_name,quantity,price_cents,status&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})`
+      )
+    : [];
+
+  /* Payments — for true split-aware method ventilation. */
+  const payments = orderIds.length > 0
+    ? await sb<OrderPayment[]>(
+        `order_payments?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})`
+      )
+    : [];
+
+  /* Staff names. */
+  const staffIds = [...new Set(orders.map((o) => o.staff_id).filter(Boolean))] as string[];
+  const staffMap = new Map<string, string>();
+  if (staffIds.length > 0) {
+    const staff = await sb<StaffMember[]>(
+      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+    );
+    for (const s of staff) staffMap.set(s.id, s.name);
+  }
+
+  /* Cash sessions opened that day. */
+  const cashSessions = await listCashSessions(isoDate);
+
+  /* ── Totals ─────────────────────────────── */
+  const orders_count = orders.length;
+  const guests_count = orders.reduce((s, o) => s + (o.guest_count || 0), 0);
+  const revenue_ttc_cents = orders.reduce((s, o) => s + o.total_cents, 0);
+  const tax_cents = orders.reduce((s, o) => s + (o.tax_cents || 0), 0);
+  const revenue_ht_cents = revenue_ttc_cents - tax_cents;
+  const tip_cents = orders.reduce((s, o) => s + (o.tip_cents || 0), 0);
+
+  /* ── By method (use payments if any, else fallback to order.payment_method) ── */
+  const methodMap = new Map<string, { amount_cents: number; count: number }>();
+  if (payments.length > 0) {
+    for (const p of payments) {
+      const cur = methodMap.get(p.method) ?? { amount_cents: 0, count: 0 };
+      cur.amount_cents += p.amount_cents + (p.tip_cents || 0);
+      cur.count += 1;
+      methodMap.set(p.method, cur);
+    }
+  } else {
+    for (const o of orders) {
+      if (!o.payment_method) continue;
+      const cur = methodMap.get(o.payment_method) ?? { amount_cents: 0, count: 0 };
+      cur.amount_cents += o.total_cents + (o.tip_cents || 0);
+      cur.count += 1;
+      methodMap.set(o.payment_method, cur);
+    }
+  }
+  const by_method = [...methodMap.entries()].map(([method, v]) => ({
+    method,
+    ...v,
+  }));
+
+  /* ── By staff ─────────────────────────── */
+  const staffStats = new Map<
+    string,
+    { orders_count: number; revenue_cents: number; tip_cents: number }
+  >();
+  for (const o of orders) {
+    if (!o.staff_id) continue;
+    const cur = staffStats.get(o.staff_id) ?? {
+      orders_count: 0,
+      revenue_cents: 0,
+      tip_cents: 0,
+    };
+    cur.orders_count += 1;
+    cur.revenue_cents += o.total_cents;
+    cur.tip_cents += o.tip_cents || 0;
+    staffStats.set(o.staff_id, cur);
+  }
+  const by_staff = [...staffStats.entries()]
+    .map(([staff_id, v]) => ({
+      staff_id,
+      staff_name: staffMap.get(staff_id) ?? "—",
+      ...v,
+    }))
+    .sort((a, b) => b.revenue_cents - a.revenue_cents);
+
+  /* ── Top items ─────────────────────────── */
+  const itemStats = new Map<
+    string,
+    { menu_item_name: string; quantity: number; revenue_cents: number }
+  >();
+  for (const it of items) {
+    if (it.status === "cancelled") continue;
+    const cur = itemStats.get(it.menu_item_id) ?? {
+      menu_item_name: it.menu_item_name,
+      quantity: 0,
+      revenue_cents: 0,
+    };
+    cur.quantity += it.quantity;
+    cur.revenue_cents += it.price_cents * it.quantity;
+    itemStats.set(it.menu_item_id, cur);
+  }
+  const top_items = [...itemStats.entries()]
+    .map(([menu_item_id, v]) => ({ menu_item_id, ...v }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  /* ── By hour ─────────────────────────── */
+  const hourStats = new Map<number, { orders: number; revenue_cents: number }>();
+  for (const o of orders) {
+    if (!o.paid_at) continue;
+    const h = new Date(o.paid_at).getHours();
+    const cur = hourStats.get(h) ?? { orders: 0, revenue_cents: 0 };
+    cur.orders += 1;
+    cur.revenue_cents += o.total_cents;
+    hourStats.set(h, cur);
+  }
+  const by_hour = [...hourStats.entries()]
+    .map(([hour, v]) => ({ hour, ...v }))
+    .sort((a, b) => a.hour - b.hour);
+
+  return {
+    date: isoDate,
+    generated_at,
+    totals: {
+      orders_count,
+      guests_count,
+      revenue_ht_cents,
+      revenue_ttc_cents,
+      tax_cents,
+      tip_cents,
+      avg_ticket_cents:
+        orders_count > 0 ? Math.round(revenue_ttc_cents / orders_count) : 0,
+      avg_per_guest_cents:
+        guests_count > 0 ? Math.round(revenue_ttc_cents / guests_count) : 0,
+      cancelled_orders: cancelled.length,
+      refund_total_cents: cancellationDetails.reduce(
+        (s, c) => s + (c.refund_amount_cents || 0),
+        0
+      ),
+    },
+    by_method,
+    by_staff,
+    top_items,
+    by_hour,
+    cash_sessions: cashSessions,
+    cancellations: cancellationDetails.map((c) => {
+      const o = cancelled.find((x) => x.id === c.order_id);
+      return {
+        order_id: c.order_id,
+        table_number: o?.table_number ?? null,
+        reason: c.reason,
+        refund_amount_cents: c.refund_amount_cents || 0,
+        cancelled_at: c.cancelled_at,
+      };
+    }),
+  };
 }
 
 /** All orders paid on the given day (00:00 → next day 00:00, local TZ). */

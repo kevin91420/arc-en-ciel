@@ -13,11 +13,14 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import type {
+  CancellationReason,
   OrderItem,
   OrderPayment,
   OrderWithItems,
   PaymentMethod,
+  RefundMethod,
 } from "@/lib/db/pos-types";
+import { CANCELLATION_REASONS } from "@/lib/db/pos-types";
 import {
   useRestaurantBranding,
   formatAddressLines,
@@ -78,6 +81,7 @@ export default function AdditionPage({ params }: PageProps) {
     amountCents: number;
     itemIds: string[];
   } | null>(null);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const branding = useRestaurantBranding();
   const addressLines = formatAddressLines(branding);
   const contactLine = formatContactLine(branding);
@@ -195,6 +199,35 @@ export default function AdditionPage({ params }: PageProps) {
       }
     },
     [refresh]
+  );
+
+  const cancelOrder = useCallback(
+    async (payload: {
+      reason: CancellationReason;
+      notes: string;
+      refund_method: RefundMethod;
+      refund_amount_cents: number;
+    }) => {
+      setPaymentBusy(true);
+      try {
+        const res = await fetch(`/api/staff/orders/${orderId}/cancel`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          alert(d.error || `Erreur ${res.status}`);
+          return;
+        }
+        setCancelModalOpen(false);
+        await refresh();
+      } finally {
+        setPaymentBusy(false);
+      }
+    },
+    [orderId, refresh]
   );
 
   if (loading) {
@@ -395,6 +428,17 @@ export default function AdditionPage({ params }: PageProps) {
               {splitActive
                 ? `Imprimer ${splitCount} additions`
                 : "Imprimer"}
+            </button>
+          )}
+
+          {order.status !== "cancelled" && (
+            <button
+              type="button"
+              onClick={() => setCancelModalOpen(true)}
+              className="h-10 px-3 rounded-lg text-xs font-semibold text-red hover:bg-red/10 transition inline-flex items-center gap-1.5"
+              title="Annuler la commande / rembourser"
+            >
+              ✋ Annuler / Rembourser
             </button>
           )}
         </div>
@@ -785,6 +829,19 @@ export default function AdditionPage({ params }: PageProps) {
           />
         )}
       </AnimatePresence>
+
+      {/* ─── Cancellation modal ── */}
+      <AnimatePresence>
+        {cancelModalOpen && (
+          <CancelOrderModal
+            orderTotal={order.total_cents}
+            paid={totalPaidCents}
+            busy={paymentBusy}
+            onCancel={() => setCancelModalOpen(false)}
+            onConfirm={cancelOrder}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -899,6 +956,212 @@ function PaymentMethodModal({
           >
             Annuler
           </button>
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   CANCEL ORDER MODAL — annulation + remboursement éventuel
+   ════════════════════════════════════════════════════════════ */
+function CancelOrderModal({
+  orderTotal,
+  paid,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  orderTotal: number;
+  paid: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (payload: {
+    reason: CancellationReason;
+    notes: string;
+    refund_method: RefundMethod;
+    refund_amount_cents: number;
+  }) => void;
+}) {
+  const [reason, setReason] = useState<CancellationReason>("error");
+  const [notes, setNotes] = useState("");
+  const [refundMethod, setRefundMethod] = useState<RefundMethod>(
+    paid > 0 ? "card" : "none"
+  );
+  const [refundEuros, setRefundEuros] = useState(
+    paid > 0 ? (paid / 100).toFixed(2) : "0"
+  );
+
+  const refundCents = Math.max(
+    0,
+    Math.round(Number(refundEuros.replace(",", ".")) * 100)
+  );
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onCancel}
+        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm"
+        aria-hidden
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 30, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 30, scale: 0.96 }}
+        transition={{ type: "spring", damping: 25, stiffness: 280 }}
+        className="fixed inset-x-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-md sm:w-full top-8 z-50"
+        role="dialog"
+        aria-modal
+      >
+        <div className="bg-white-warm rounded-2xl shadow-2xl border border-red/30 max-h-[85vh] flex flex-col">
+          <div className="px-5 py-4 border-b border-terracotta/20 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-bold text-red">
+              Annuler la commande
+            </h2>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-brown-light hover:text-brown w-8 h-8 rounded-full flex items-center justify-center"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="overflow-y-auto px-5 py-4 space-y-4">
+            <div className="rounded-xl bg-cream border border-terracotta/20 p-3 text-xs text-brown-light">
+              Total commande : <strong>{formatCents(orderTotal)}</strong>
+              {paid > 0 && (
+                <>
+                  {" · "}Déjà encaissé : <strong>{formatCents(paid)}</strong>
+                </>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider text-brown-light/80 font-bold mb-2">
+                Motif
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {CANCELLATION_REASONS.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => setReason(r.key)}
+                    className={[
+                      "h-11 px-4 rounded-lg text-sm font-semibold border text-left inline-flex items-center gap-2 transition",
+                      reason === r.key
+                        ? "bg-red text-cream border-red"
+                        : "bg-cream text-brown border-terracotta/30 hover:border-red/60",
+                    ].join(" ")}
+                  >
+                    <span aria-hidden>{r.icon}</span>
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
+                Note (optionnel)
+              </span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                maxLength={300}
+                placeholder="Détail pour le manager / l'historique"
+                className="mt-1.5 w-full px-3 py-2 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold resize-none"
+              />
+            </label>
+
+            {paid > 0 && (
+              <>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-brown-light/80 font-bold mb-2">
+                    Mode de remboursement
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { key: "card", label: "💳 CB" },
+                        { key: "cash", label: "💵 Espèces" },
+                        { key: "voucher", label: "🎟 Avoir" },
+                        { key: "none", label: "Sans remb." },
+                      ] as { key: RefundMethod; label: string }[]
+                    ).map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setRefundMethod(opt.key)}
+                        className={[
+                          "h-10 rounded-lg text-xs font-bold border transition",
+                          refundMethod === opt.key
+                            ? "bg-brown text-cream border-brown"
+                            : "bg-cream text-brown border-terracotta/30",
+                        ].join(" ")}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {refundMethod !== "none" && (
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
+                      Montant remboursé
+                    </span>
+                    <div className="mt-1.5 relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={paid / 100}
+                        value={refundEuros}
+                        onChange={(e) => setRefundEuros(e.target.value)}
+                        className="w-full px-3 py-2 pr-8 rounded-lg bg-white-warm border border-terracotta/30 text-brown text-base font-bold tabular-nums focus:outline-none focus:border-gold"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-brown-light text-sm">
+                        €
+                      </span>
+                    </div>
+                  </label>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="px-5 py-3 border-t border-terracotta/20 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 h-10 rounded-lg text-sm text-brown-light hover:text-brown transition"
+            >
+              Garder la commande
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onConfirm({
+                  reason,
+                  notes: notes.trim(),
+                  refund_method: refundMethod,
+                  refund_amount_cents:
+                    refundMethod === "none" || refundMethod === "voucher"
+                      ? 0
+                      : refundCents,
+                })
+              }
+              disabled={busy}
+              className="flex-[2] h-10 rounded-lg bg-red text-cream text-sm font-bold hover:bg-red-dark transition disabled:opacity-50 active:scale-95 inline-flex items-center justify-center gap-1.5"
+            >
+              ✋ Confirmer l&apos;annulation
+            </button>
+          </div>
         </div>
       </motion.div>
     </>

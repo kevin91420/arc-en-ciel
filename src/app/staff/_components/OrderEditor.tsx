@@ -12,7 +12,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CARTE } from "@/data/carte";
@@ -25,6 +25,7 @@ import { ORDER_FLAGS_META } from "@/lib/db/pos-types";
 import { useRealtimeTable } from "@/lib/realtime/useRealtimeTable";
 import { useEightySixList } from "@/lib/hooks/useEightySixList";
 import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
+import { useMenu } from "@/lib/hooks/useMenu";
 import { formatCents, formatDuration, minutesSince } from "@/lib/format";
 import {
   COURSE_ICONS,
@@ -35,22 +36,12 @@ import {
 } from "@/lib/courses";
 import {
   toPosCatalog,
+  toPosCatalogFromDb,
   type PosMenuItem,
 } from "../_lib/menu";
 
-const POS_CATALOG = toPosCatalog(CARTE);
-
-/* Lookup table: menu_item_id → image (if any). Built once at module load so
- * OrderLine thumbnails don't trigger a CARTE search on every render. */
-const MENU_IMAGE_BY_ID: Record<string, string | undefined> = (() => {
-  const map: Record<string, string | undefined> = {};
-  for (const cat of POS_CATALOG) {
-    for (const item of cat.items) {
-      map[item.id] = item.image;
-    }
-  }
-  return map;
-})();
+/** Static fallback used when the DB hasn't been seeded yet. */
+const FALLBACK_POS_CATALOG = toPosCatalog(CARTE);
 
 /* Modifier hints per category — quick taps, no free-text typing. */
 const QUICK_MODIFIERS: Record<string, string[]> = {
@@ -111,7 +102,26 @@ type Props = {
 export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const router = useRouter();
   void router; /* kept for future inline navigations */
-  const [activeCategory, setActiveCategory] = useState(POS_CATALOG[0].id);
+  const { menu } = useMenu();
+  /* DB-driven catalogue → editable from /admin/menu without touching code.
+   * Falls back to the static CARTE while the DB seeds. */
+  const POS_CATALOG = useMemo(() => {
+    const fromDb = toPosCatalogFromDb(menu);
+    return fromDb.length > 0 ? fromDb : FALLBACK_POS_CATALOG;
+  }, [menu]);
+  /* Lookup id → image, recomputed when the catalogue changes. */
+  const MENU_IMAGE_BY_ID = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const cat of POS_CATALOG) {
+      for (const item of cat.items) {
+        map[item.id] = item.image;
+      }
+    }
+    return map;
+  }, [POS_CATALOG]);
+  const [activeCategory, setActiveCategory] = useState<string>(
+    POS_CATALOG[0]?.id ?? ""
+  );
   const [busy, setBusy] = useState(false);
   const [modifierTarget, setModifierTarget] = useState<OrderItem | null>(null);
   /* Item id + monotonic tick — each merge bump flashes the row. Using a counter
@@ -124,6 +134,15 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
   const branding = useRestaurantBranding();
   const flagsEnabled = branding.feature_special_flags !== false;
   const activeFlags = (order.flags ?? []) as OrderFlag[];
+
+  /* Keep activeCategory in sync if the menu catalogue changes (admin edit,
+   * category renamed/disabled). Falls back to the first available category. */
+  useEffect(() => {
+    if (POS_CATALOG.length === 0) return;
+    if (!POS_CATALOG.find((c) => c.id === activeCategory)) {
+      setActiveCategory(POS_CATALOG[0].id);
+    }
+  }, [POS_CATALOG, activeCategory]);
 
   /* Keep the server state fresh without thrash. */
   const refresh = useCallback(async () => {
@@ -674,6 +693,7 @@ export default function OrderEditor({ order, tableNumber, onChange }: Props) {
                           ? pulseTarget.tick
                           : 0
                       }
+                      thumb={MENU_IMAGE_BY_ID[item.menu_item_id]}
                     />
                   ))}
                 </AnimatePresence>
@@ -958,6 +978,7 @@ function OrderLine({
   onAck,
   busy,
   pulseTick,
+  thumb,
 }: {
   item: OrderItem;
   /** True when this line was submitted by the customer via the QR menu and
@@ -971,13 +992,12 @@ function OrderLine({
   /* Monotonic counter incremented by the parent each time this row's quantity
    * was bumped via a merge. Zero means "no pulse queued". */
   pulseTick: number;
+  thumb?: string;
 }) {
   const s = ITEM_STATUS_STYLES[item.status];
   const canEdit = item.status === "pending";
   const isReadyNotAck = item.status === "ready" && !item.acknowledged_at;
   const isAcked = item.status === "ready" && Boolean(item.acknowledged_at);
-
-  const thumb = MENU_IMAGE_BY_ID[item.menu_item_id];
 
   return (
     <motion.li

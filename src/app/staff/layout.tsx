@@ -102,6 +102,9 @@ export default function StaffLayout({
             <StaffTab href="/staff/historique" active={pathname.startsWith("/staff/historique")}>
               Historique
             </StaffTab>
+            <StaffTab href="/staff/caisse" active={pathname.startsWith("/staff/caisse")}>
+              Caisse
+            </StaffTab>
           </nav>
 
           <div className="ml-auto flex items-center gap-4">

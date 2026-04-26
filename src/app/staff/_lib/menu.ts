@@ -7,7 +7,16 @@
 
 import type { MenuCategory, MenuItem } from "@/data/carte";
 import type { Station } from "@/lib/db/pos-types";
+import type { MenuCategoryFull } from "@/lib/db/menu-types";
 import { parsePriceToCents } from "@/lib/format";
+
+function fmtFR(cents: number): string {
+  return `${(cents / 100)
+    .toLocaleString("fr-FR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} €`;
+}
 
 /** Map a CARTE category id to the KDS station that prepares it. */
 export function stationForCategory(categoryId: string): Station {
@@ -86,4 +95,40 @@ export function toPosCatalog(carte: MenuCategory[]): PosMenuCategory[] {
       })),
     };
   });
+}
+
+/**
+ * Convert the DB-shape menu (returned by /api/menu) into the POS catalogue.
+ * Inactive items are filtered out — the POS only shows what's bookable.
+ */
+export function toPosCatalogFromDb(
+  menu: MenuCategoryFull[]
+): PosMenuCategory[] {
+  return menu
+    .filter((c) => c.active)
+    .map((cat) => ({
+      id: cat.id,
+      number: cat.number,
+      title: cat.title,
+      subtitle: cat.subtitle ?? "",
+      icon: cat.icon,
+      station: cat.station,
+      items: cat.items
+        .filter((it) => it.active)
+        .map((it) => ({
+          id: it.id,
+          name: it.name,
+          description: it.description,
+          price_cents: it.price_cents,
+          price_label: fmtFR(it.price_cents),
+          station: cat.station,
+          category_id: cat.id,
+          category_title: cat.title,
+          image: it.image_url ?? undefined,
+          signature: it.signature,
+          popular: it.popular,
+          chef: it.chef,
+          tags: it.tags as MenuItem["tags"],
+        })),
+    }));
 }

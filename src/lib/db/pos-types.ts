@@ -155,6 +155,49 @@ export interface CreatePaymentPayload {
   notes?: string;
 }
 
+/* ── Cancellations ─────────────────────────────────────── */
+
+export type CancellationReason = "error" | "refused" | "gesture" | "other";
+export type RefundMethod = "cash" | "card" | "voucher" | "none";
+
+export interface OrderCancellation {
+  id: string;
+  order_id: string;
+  reason: CancellationReason;
+  notes?: string | null;
+  cancelled_by?: string | null;
+  refund_method?: RefundMethod | null;
+  refund_amount_cents: number;
+  cancelled_at: string;
+}
+
+export const CANCELLATION_REASONS: {
+  key: CancellationReason;
+  label: string;
+  icon: string;
+}[] = [
+  { key: "error", label: "Erreur de commande", icon: "✋" },
+  { key: "refused", label: "Plat refusé / non conforme", icon: "🥲" },
+  { key: "gesture", label: "Geste commercial", icon: "🎁" },
+  { key: "other", label: "Autre raison", icon: "•" },
+];
+
+/* ── Cash sessions ─────────────────────────────────────── */
+
+export interface CashSession {
+  id: string;
+  opened_at: string;
+  closed_at?: string | null;
+  opening_amount_cents: number;
+  expected_cash_cents?: number | null;
+  actual_cash_cents?: number | null;
+  variance_cents?: number | null;
+  opened_by?: string | null;
+  closed_by?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
 /* ── Payloads ──────────────────────────────────────────── */
 
 export interface CreateOrderPayload {

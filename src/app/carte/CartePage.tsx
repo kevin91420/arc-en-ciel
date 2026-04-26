@@ -4,9 +4,10 @@ import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { CARTE, TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
+import { TAG_LABELS, type DietaryTag, type MenuItem } from "@/data/carte";
 import { OliveBranch } from "@/components/Decorations";
 import { useEightySixList } from "@/lib/hooks/useEightySixList";
+import { useEditorialMenu } from "@/lib/hooks/useMenu";
 
 /* ═══════════════════════════════════════════════════════════
    LA CARTE — Page éditoriale magazine culinaire
@@ -24,15 +25,18 @@ export default function CartePage() {
   const [filter, setFilter] = useState<DietaryTag | "all">("all");
   const [activeSection, setActiveSection] = useState<string>("entrees");
   const eightySixSet = useEightySixList();
+  const carte = useEditorialMenu();
 
   /* Filter logic */
   const filteredCarte = useMemo(() => {
-    if (filter === "all") return CARTE;
-    return CARTE.map((cat) => ({
-      ...cat,
-      items: cat.items.filter((item) => item.tags?.includes(filter)),
-    })).filter((cat) => cat.items.length > 0);
-  }, [filter]);
+    if (filter === "all") return carte;
+    return carte
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter((item) => item.tags?.includes(filter)),
+      }))
+      .filter((cat) => cat.items.length > 0);
+  }, [filter, carte]);
 
   /* Scroll spy for sticky nav */
   useEffect(() => {
@@ -46,12 +50,12 @@ export default function CartePage() {
       },
       { rootMargin: "-30% 0px -50% 0px" }
     );
-    CARTE.forEach((cat) => {
+    carte.forEach((cat) => {
       const el = document.getElementById(cat.id);
       if (el) observer.observe(el);
     });
     return () => observer.disconnect();
-  }, []);
+  }, [carte]);
 
   return (
     <div className="bg-cream min-h-screen bg-paper">
@@ -115,7 +119,7 @@ export default function CartePage() {
           {/* Categories nav */}
           <nav className="overflow-x-auto scrollbar-hide" aria-label="Sections de la carte">
             <ul className="flex items-center gap-1 sm:gap-2 py-2.5 min-w-max">
-              {CARTE.map((cat) => (
+              {carte.map((cat) => (
                 <li key={cat.id}>
                   <a
                     href={`#${cat.id}`}

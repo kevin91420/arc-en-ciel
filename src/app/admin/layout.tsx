@@ -136,9 +136,18 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/z-rapport",
+    label: "Z fin service",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path d="M5 4h14v16l-3-2-2 2-2-2-2 2-2-2-3 2V4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/menu",
-    label: "Menu",
-    soon: true,
+    label: "Carte",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
         <path d="M5 4h11l3 3v13H5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
