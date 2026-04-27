@@ -257,9 +257,6 @@ export default function ParametresPage() {
         </p>
       </motion.div>
 
-      {/* ══════════ Savings banner (visible only if replaced platforms exist) ══════════ */}
-      <SavingsBanner />
-
       {/* ══════════ Dedicated sub-configs ══════════ */}
       <motion.section
         initial={{ opacity: 0, y: 20 }}

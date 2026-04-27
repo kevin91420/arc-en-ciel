@@ -3,21 +3,19 @@
 /**
  * TablePlanCanvas — Canvas 2D drag&drop pour positionner les tables.
  *
- * Coordonnées en "grid units" (1 unit ≈ 40px). Stockées dans la config
- * white-label. Drag = repositionnement, click = sélection pour éditer
- * forme + capacité.
- *
- * Utilisé en mode admin (drag&drop) ET en mode staff (read-only avec état
- * temps réel). Le mode est piloté par la prop `interactive`.
+ * Coordonnées en "grid units" (24 colonnes × 14 lignes). Le canvas est
+ * responsive (aspect-ratio fixe), donc on mesure la vraie taille à chaque
+ * drag pour calculer la conversion px → unit. Snap à 0.5 unit (demi-cellule)
+ * → fluide pour le user, pas de saut visible.
  */
 
 import { motion, type PanInfo } from "framer-motion";
 import { useMemo, useRef } from "react";
 import type { TableConfig, TableShape } from "@/lib/db/settings-types";
 
-const GRID = 40; // px per grid unit
-const CANVAS_W = 24; // grid units = 960px
-const CANVAS_H = 14; // grid units = 560px
+const CANVAS_W = 24;
+const CANVAS_H = 14;
+const SNAP = 0.5; // demi-cellule = sub-pixel snap qui reste propre
 
 function shapeDimensions(shape: TableShape | undefined): {
   w: number;
@@ -40,6 +38,10 @@ function autoPosition(index: number): { x: number; y: number } {
   const col = index % cols;
   const row = Math.floor(index / cols);
   return { x: col * 3 + 1, y: row * 3 + 1 };
+}
+
+function snap(v: number): number {
+  return Math.round(v / SNAP) * SNAP;
 }
 
 export interface TablePlanCanvasProps {
@@ -71,7 +73,7 @@ export default function TablePlanCanvas({
   onSelect,
   onMove,
 }: TablePlanCanvasProps) {
-  const ref = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   /* Auto-position tables that have no coordinates yet. */
   const placed = useMemo(() => {
@@ -92,23 +94,43 @@ export default function TablePlanCanvas({
 
   function handleDragEnd(table: TableConfig, info: PanInfo) {
     if (!interactive || !onMove) return;
-    const dx = info.offset.x / GRID;
-    const dy = info.offset.y / GRID;
-    const placedT = placed.find((t) => t.number === table.number)!;
-    const nx = Math.max(0, Math.min(CANVAS_W - placedT.width, Math.round(placedT.x + dx)));
-    const ny = Math.max(0, Math.min(CANVAS_H - placedT.height, Math.round(placedT.y + dy)));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    /* Mesure la VRAIE taille du canvas (responsive — peut être 600px ou
+     * 1000px selon la viewport). Sans ça, le calcul px→unit est faux. */
+    const rect = canvas.getBoundingClientRect();
+    const cellW = rect.width / CANVAS_W;
+    const cellH = rect.height / CANVAS_H;
+    if (cellW <= 0 || cellH <= 0) return;
+
+    const dx = info.offset.x / cellW;
+    const dy = info.offset.y / cellH;
+    const placedT = placed.find((t) => t.number === table.number);
+    if (!placedT) return;
+
+    const rawX = placedT.x + dx;
+    const rawY = placedT.y + dy;
+    const nx = Math.max(
+      0,
+      Math.min(CANVAS_W - placedT.width, snap(rawX))
+    );
+    const ny = Math.max(
+      0,
+      Math.min(CANVAS_H - placedT.height, snap(rawY))
+    );
     onMove(table.number, nx, ny);
   }
 
   return (
     <div
-      ref={ref}
+      ref={canvasRef}
       className="relative w-full rounded-2xl border border-terracotta/30 overflow-hidden bg-cream/60"
       style={{
         aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
         backgroundImage:
           "radial-gradient(rgba(184,146,47,0.18) 1px, transparent 1px)",
-        backgroundSize: `${100 / CANVAS_W}% ${100 / CANVAS_H}%`,
+        /* Grille fine = chaque demi-cellule visible, repère naturel */
+        backgroundSize: `${50 / CANVAS_W}% ${50 / CANVAS_H}%`,
       }}
     >
       {placed.map((t) => {
@@ -127,20 +149,23 @@ export default function TablePlanCanvas({
             drag={interactive}
             dragMomentum={false}
             dragElastic={0}
+            /* dragConstraints empêche la table de sortir du canvas pendant
+             * le drag (sinon on peut la traîner à -200% et perdre le suivi). */
+            dragConstraints={canvasRef}
             onDragEnd={(_, info) => handleDragEnd(t, info)}
             onClick={() => {
               visual.onClick?.();
               onSelect?.(t.number);
             }}
             whileHover={{ scale: interactive ? 1.02 : 1 }}
-            whileDrag={{ scale: 1.05, zIndex: 50 }}
+            whileDrag={{ scale: 1.05, zIndex: 50, cursor: "grabbing" }}
             className={[
               "absolute flex flex-col items-center justify-center text-center select-none",
               "border-2 transition-colors",
               t.shape === "round" ? "rounded-full" : "rounded-2xl",
               visual.bg,
               visual.border,
-              interactive ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+              interactive ? "cursor-grab" : "cursor-pointer",
               selected ? "ring-4 ring-gold/60" : "",
             ].join(" ")}
             style={{
@@ -154,7 +179,7 @@ export default function TablePlanCanvas({
             {visual.pulse && (
               <motion.span
                 aria-hidden
-                className="absolute inset-0 rounded-2xl ring-4 ring-green-500/60 pointer-events-none"
+                className="absolute inset-0 ring-4 ring-green-500/60 pointer-events-none"
                 animate={{ opacity: [0.3, 1, 0.3], scale: [1, 1.02, 1] }}
                 transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
                 style={{
