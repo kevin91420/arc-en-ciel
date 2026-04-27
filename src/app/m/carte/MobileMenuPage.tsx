@@ -121,7 +121,6 @@ export default function MobileMenuPage({
   const prefersReducedMotion = useReducedMotion();
 
   const carte = useEditorialMenu();
-  const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DietaryTag | "all">("all");
   const [activeCategory, setActiveCategory] = useState<string>(
     carte[0]?.id ?? ""
@@ -463,24 +462,19 @@ export default function MobileMenuPage({
     }
   }, [cart, tableNumber, clearCart]);
 
-  /* Filter + search logic */
+  /* Filter logic (search bar retiré pour simplifier le QR menu mobile) */
   const filteredCarte = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return carte
       .map((cat) => ({
         ...cat,
         items: cat.items.filter((item) => {
           if (activeFilter !== "all" && !item.tags?.includes(activeFilter))
             return false;
-          if (!q) return true;
-          return (
-            item.name.toLowerCase().includes(q) ||
-            item.description.toLowerCase().includes(q)
-          );
+          return true;
         }),
       }))
       .filter((cat) => cat.items.length > 0);
-  }, [carte, search, activeFilter]);
+  }, [carte, activeFilter]);
 
   /* Scroll spy */
   useEffect(() => {
@@ -576,42 +570,6 @@ export default function MobileMenuPage({
             </div>
           </div>
 
-          {/* Search */}
-          <label className="relative block">
-            <span className="sr-only">Rechercher un plat</span>
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light/60"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"
-              />
-            </svg>
-            <input
-              type="text"
-              inputMode="search"
-              enterKeyHint="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un plat, un ingrédient…"
-              className="w-full pl-10 pr-10 py-2.5 bg-white-warm border border-terracotta/20 rounded-full text-sm text-brown placeholder:text-brown-light/50 focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-brown-light/60 hover:text-brown"
-                aria-label="Effacer la recherche"
-              >
-                ✕
-              </button>
-            )}
-          </label>
         </div>
 
         {/* Category tabs — sticky under header */}
@@ -643,13 +601,10 @@ export default function MobileMenuPage({
       <main ref={mainRef} className="px-4 pt-4">
         {filteredCarte.length === 0 ? (
           <div className="py-20 text-center">
-            <div className="text-5xl mb-4">🔍</div>
-            <p className="text-brown-light">Aucun plat trouvé</p>
+            <div className="text-5xl mb-4">🍽️</div>
+            <p className="text-brown-light">Aucun plat ne correspond au filtre</p>
             <button
-              onClick={() => {
-                setSearch("");
-                setActiveFilter("all");
-              }}
+              onClick={() => setActiveFilter("all")}
               className="mt-4 text-red text-sm font-semibold"
             >
               Réinitialiser les filtres

@@ -38,6 +38,14 @@ interface ComboDraft {
   slots: SlotDraft[];
 }
 
+/**
+ * Slugify — lowercase + strip diacritics (combining marks U+0300..U+036F)
+ * + collapse non-alphanum to "-" + trim. Stable, ASCII-safe.
+ *
+ * IMPORTANT : on utilise les escape unicode ̀-ͯ plutôt que
+ * les caractères combinants littéraux dans la regex — sinon n'importe
+ * quel éditeur/transit qui normalise les chaînes peut casser la classe.
+ */
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -438,14 +446,26 @@ function ComboEditModal({
   onSave: () => void;
 }) {
   const [idTouched, setIdTouched] = useState(Boolean(draft.id));
+  const [validationError, setValidationError] = useState<string | null>(null);
 
+  /* Auto-sync slug ← name pendant que l'utilisateur tape, mais SEULEMENT
+   * tant qu'il n'a pas édité manuellement le slug. Sans ça, on tombait
+   * dans un état où le slug ne se générait qu'une fois (au 1er char) et
+   * stagnait à "m" alors que le nom devenait "Menu midi".
+   *
+   * Note : on dépend uniquement de [draft.name, idTouched]. Inclure
+   * `draft` ou `onChange` créerait une boucle infinie via le setState.
+   */
   useEffect(() => {
-    if (!idTouched && !draft.id) {
-      onChange({ ...draft, id: slugify(draft.name) });
-    }
-  }, [draft.name, idTouched, draft, onChange]);
+    if (idTouched) return;
+    const next = slugify(draft.name);
+    if (next === draft.id) return;
+    onChange({ ...draft, id: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.name, idTouched]);
 
   function update(patch: Partial<ComboDraft>) {
+    if (validationError) setValidationError(null);
     onChange({ ...draft, ...patch });
   }
 
@@ -482,18 +502,29 @@ function ComboEditModal({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft.name.trim() || !draft.id.trim()) {
-      alert("Nom et identifiant requis");
+    if (!draft.name.trim()) {
+      setValidationError("Le nom de la formule est obligatoire.");
+      return;
+    }
+    if (!draft.id.trim()) {
+      setValidationError("L'identifiant (slug) est obligatoire — il s'auto-remplit à partir du nom.");
       return;
     }
     if (draft.slots.length === 0) {
-      alert("Ajoute au moins un slot (Entrée, Plat, …)");
+      setValidationError("Ajoute au moins un slot (Entrée, Plat, Dessert…).");
       return;
     }
-    if (draft.slots.some((s) => s.item_ids.length < s.min_picks)) {
-      alert("Un slot doit avoir au moins min_picks items disponibles.");
+    const badSlot = draft.slots.findIndex(
+      (s) => s.item_ids.length < s.min_picks
+    );
+    if (badSlot >= 0) {
+      const s = draft.slots[badSlot];
+      setValidationError(
+        `Slot « ${s.label || `n°${badSlot + 1}`} » : coche au moins ${s.min_picks} plat(s). (actuellement ${s.item_ids.length})`
+      );
       return;
     }
+    setValidationError(null);
     onSave();
   }
 
@@ -512,15 +543,21 @@ function ComboEditModal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 30, scale: 0.96 }}
         transition={{ type: "spring", damping: 25, stiffness: 280 }}
-        className="fixed inset-x-4 sm:inset-auto sm:top-[5%] sm:left-1/2 sm:-translate-x-1/2 sm:max-w-2xl sm:w-full top-8 bottom-8 z-50"
+        /* Mobile : modal pleine hauteur (top-4 bottom-4) pour qu'on
+         * voit toujours le footer. Desktop : centrée avec max-h-[90vh]. */
+        className="fixed inset-x-4 top-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-2xl sm:w-[calc(100vw-2rem)] sm:max-h-[90vh] z-50 flex"
         role="dialog"
         aria-modal
       >
         <form
           onSubmit={submit}
-          className="bg-white-warm rounded-2xl shadow-2xl border border-terracotta/30 max-h-full flex flex-col"
+          /* h-full + min-h-0 : la form prend toute la hauteur du wrapper,
+           * et le middle (overflow-y-auto + flex-1 + min-h-0) peut shrink
+           * et scroller. Sans min-h-0, flexbox refuse de réduire le
+           * middle sous sa hauteur de contenu → le footer disparaît. */
+          className="bg-white-warm rounded-2xl shadow-2xl border border-terracotta/30 h-full w-full flex flex-col overflow-hidden"
         >
-          <div className="px-5 py-4 border-b border-terracotta/20 flex items-center justify-between">
+          <div className="px-5 py-4 border-b border-terracotta/20 flex items-center justify-between flex-shrink-0">
             <h2 className="font-[family-name:var(--font-display)] text-lg font-bold text-brown">
               {draft.id ? `Modifier ${draft.name || "la formule"}` : "Nouvelle formule"}
             </h2>
@@ -534,7 +571,7 @@ function ComboEditModal({
             </button>
           </div>
 
-          <div className="overflow-y-auto px-5 py-4 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-3">
               <Field label="Nom" required>
                 <input
@@ -648,7 +685,17 @@ function ComboEditModal({
             </Field>
           </div>
 
-          <div className="px-5 py-3 border-t border-terracotta/20 flex items-center justify-end gap-2">
+          {validationError && (
+            <div
+              role="alert"
+              className="mx-5 mb-2 rounded-lg border border-red/40 bg-red/10 text-red-dark text-xs px-3 py-2 flex items-start gap-2 flex-shrink-0"
+            >
+              <span aria-hidden className="text-base leading-none">⚠</span>
+              <span className="font-semibold">{validationError}</span>
+            </div>
+          )}
+
+          <div className="px-5 py-3 border-t border-terracotta/20 flex items-center justify-end gap-2 flex-shrink-0 bg-white-warm">
             <button
               type="button"
               onClick={onCancel}
