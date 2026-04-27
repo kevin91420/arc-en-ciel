@@ -134,7 +134,9 @@ export default function MobileMenuPage({
     }
   }, [carte, activeCategory]);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [callWaiterOpen, setCallWaiterOpen] = useState(false);
+  /* Le bouton "Appeler le serveur" a été retiré (Sprint UX simplification —
+   * 95% des QR menus n'utilisent jamais cette feature et elle pollue l'écran).
+   * On garde le composant CallWaiterModal en cas de re-activation future. */
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -512,7 +514,7 @@ export default function MobileMenuPage({
   const activeFilterMeta = FILTERS.find((f) => f.key === activeFilter);
 
   return (
-    <div className="min-h-screen bg-cream bg-paper pb-24">
+    <div className="min-h-screen bg-cream bg-paper pb-8">
       {/* ═══ HEADER ═══ */}
       <header className="sticky top-0 z-30 bg-cream/95 backdrop-blur-lg border-b border-terracotta/15">
         <div className="px-4 pt-4 pb-3">
@@ -537,15 +539,24 @@ export default function MobileMenuPage({
               />
               <button
                 onClick={() => setFiltersOpen(true)}
-                className={`relative inline-flex items-center gap-1.5 px-3 h-11 rounded-full text-xs font-semibold border transition active:scale-95 ${
+                className={`relative inline-flex items-center justify-center w-11 h-11 rounded-full border transition active:scale-95 ${
                   activeFilter !== "all"
                     ? "bg-brown text-cream border-brown"
                     : "bg-white-warm text-brown-light border-terracotta/20"
                 }`}
-                aria-label="Ouvrir les filtres"
+                aria-label={
+                  activeFilter === "all"
+                    ? "Ouvrir les filtres"
+                    : `Filtre actif : ${activeFilterMeta?.label ?? ""}`
+                }
+                title={
+                  activeFilter === "all"
+                    ? "Filtres"
+                    : `${activeFilterMeta?.icon ?? ""} ${activeFilterMeta?.label ?? ""}`
+                }
               >
                 <svg
-                  className="w-4 h-4"
+                  className="w-5 h-5"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth={2}
@@ -558,15 +569,63 @@ export default function MobileMenuPage({
                     d="M3 4h18M6 12h12M10 20h4"
                   />
                 </svg>
-                <span>
-                  {activeFilter === "all"
-                    ? "Filtres"
-                    : `${activeFilterMeta?.icon ?? ""} ${activeFilterMeta?.label ?? "Filtres"}`}
-                </span>
                 {activeFilter !== "all" && (
                   <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold border-2 border-cream" />
                 )}
               </button>
+
+              {/* ─── BOUTON PANIER ROND — toujours visible en haut à droite ───
+                  Tap target 56px (Apple HIG ≥ 44 confortable), gold avec
+                  shadow et ring pour qu'il "saute aux yeux". Badge rouge
+                  nombre d'articles + animation pop à chaque ajout. */}
+              <motion.button
+                onClick={() => setCartOpen(true)}
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
+                className="relative inline-flex items-center justify-center w-14 h-14 rounded-full bg-gold text-brown shadow-lg shadow-gold/40 ring-2 ring-gold/30 ring-offset-2 ring-offset-cream transition-shadow hover:shadow-xl"
+                aria-label={
+                  cartCount > 0
+                    ? `Mon panier (${cartCount} article${cartCount > 1 ? "s" : ""})`
+                    : "Mon panier (vide)"
+                }
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.2}
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
+                </svg>
+                <AnimatePresence>
+                  {cartCount > 0 && (
+                    <motion.span
+                      key={cartCount}
+                      initial={
+                        prefersReducedMotion
+                          ? false
+                          : { scale: 0.4, opacity: 0 }
+                      }
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.4, opacity: 0 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 540,
+                        damping: 22,
+                      }}
+                      className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-red text-white-warm text-[11px] font-black tabular-nums border-2 border-cream shadow-md"
+                      aria-hidden="true"
+                    >
+                      {cartCount}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.button>
             </div>
           </div>
 
@@ -655,68 +714,6 @@ export default function MobileMenuPage({
         </div>
       </main>
 
-      {/* ═══ BOTTOM BAR — Cart + Waiter ═══ */}
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-20 bg-brown text-cream border-t border-gold/20 shadow-2xl"
-        aria-label="Actions"
-      >
-        <div className="flex items-stretch justify-between gap-2 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <button
-            onClick={() => setCartOpen(true)}
-            className="relative flex-1 flex items-center justify-center gap-2 h-14 rounded-2xl bg-gold text-brown font-bold text-sm active:scale-[0.98] transition-transform shadow-md shadow-black/10"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.2}
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-            <span>Mon panier</span>
-            {cartCount > 0 && (
-              <motion.span
-                key={cartCount}
-                initial={prefersReducedMotion ? false : { scale: 0.6, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                className="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-red text-white-warm text-[11px] font-black tabular-nums"
-                aria-label={`${cartCount} articles`}
-              >
-                {cartCount}
-              </motion.span>
-            )}
-          </button>
-          <button
-            onClick={() => setCallWaiterOpen(true)}
-            className="flex-shrink-0 flex items-center justify-center gap-2 h-14 px-4 rounded-2xl bg-brown-light/20 text-cream border border-gold/20 font-semibold text-sm active:scale-[0.98] transition-transform"
-          >
-            <svg
-              className="w-5 h-5 text-gold-light"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a7 7 0 10-14 0v3.2a2 2 0 01-.6 1.4L2 17h5m8 0v1a3 3 0 11-6 0v-1m6 0H9"
-              />
-            </svg>
-            <span className="hidden xs:inline">Serveur</span>
-            <span className="xs:hidden">🙋</span>
-          </button>
-        </div>
-      </nav>
-
       {/* ═══ DETAIL MODAL ═══ */}
       <AnimatePresence>
         {selectedItem && (
@@ -739,15 +736,7 @@ export default function MobileMenuPage({
         )}
       </AnimatePresence>
 
-      {/* ═══ CALL WAITER MODAL ═══ */}
-      <AnimatePresence>
-        {callWaiterOpen && (
-          <CallWaiterModal
-            tableNumber={tableNumber}
-            onClose={() => setCallWaiterOpen(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* CallWaiterModal retiré (Sprint UX simplification). */}
 
       {/* ═══ FILTERS BOTTOM SHEET ═══ */}
       <AnimatePresence>
@@ -1641,130 +1630,10 @@ function SuccessState({ tableNumber }: { tableNumber?: string }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   CALL WAITER MODAL
-   ═══════════════════════════════════════════════════════════ */
-function CallWaiterModal({
-  tableNumber,
-  onClose,
-}: {
-  tableNumber?: string;
-  onClose: () => void;
-}) {
-  const [confirmed, setConfirmed] = useState(false);
-
-  const requests = [
-    { icon: "🙋", label: "Appeler le serveur" },
-    { icon: "🧾", label: "Demander l'addition" },
-    { icon: "💧", label: "Apporter de l'eau" },
-    { icon: "🍞", label: "Plus de pain" },
-  ];
-
-  const send = async (label: string) => {
-    const table = Number(tableNumber) || 0;
-
-    /* Demo case: no table number known — skip API, show confirmation anyway */
-    if (table === 0) {
-      setConfirmed(true);
-      setTimeout(() => {
-        onClose();
-        setConfirmed(false);
-      }, 1800);
-      return;
-    }
-
-    /* Fire-and-forget POST. We show confirmation regardless. */
-    try {
-      await fetch("/api/waiter", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          table_number: table,
-          request_type: label,
-        }),
-      });
-    } catch {
-      /* swallow — UX continues */
-    }
-
-    setConfirmed(true);
-    setTimeout(() => {
-      onClose();
-      setConfirmed(false);
-    }, 1800);
-  };
-
-  return (
-    <>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm"
-      />
-      <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ type: "spring", damping: 28, stiffness: 280 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Appeler le serveur"
-      >
-        <div className="w-10 h-1 rounded-full bg-brown/20 mx-auto mb-5" />
-
-        {confirmed ? (
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="text-center py-6"
-          >
-            <div className="text-5xl mb-3">✓</div>
-            <h3 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown mb-1">
-              Demande envoyée
-            </h3>
-            <p className="text-brown-light text-sm">
-              Un membre de l&apos;équipe arrive dans un instant
-            </p>
-          </motion.div>
-        ) : (
-          <>
-            <h3 className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown mb-1">
-              Besoin d&apos;aide ?
-            </h3>
-            <p className="text-brown-light text-sm mb-5">
-              {tableNumber
-                ? `Votre demande sera envoyée pour la table #${tableNumber}`
-                : "Choisissez votre demande ci-dessous"}
-            </p>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              {requests.map((r) => (
-                <button
-                  key={r.label}
-                  onClick={() => send(r.label)}
-                  className="flex flex-col items-center gap-2 p-4 bg-white-warm rounded-2xl border border-terracotta/15 active:scale-95 transition-transform hover:border-gold hover:shadow-md"
-                >
-                  <span className="text-3xl">{r.icon}</span>
-                  <span className="text-xs font-semibold text-brown text-center leading-tight">
-                    {r.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <a
-              href="tel:+33164540030"
-              className="block text-center text-xs text-red font-semibold py-3 active:scale-95 transition-transform"
-            >
-              Ou appeler directement : 01 64 54 00 30
-            </a>
-          </>
-        )}
-      </motion.div>
-    </>
-  );
-}
+/* CallWaiterModal supprimé en Sprint UX simplification — la feature
+ * "appeler le serveur" depuis le QR menu n'était quasiment jamais utilisée
+ * et encombrait l'écran. L'API /api/waiter est conservée si on veut la
+ * réactiver plus tard. */
 
 /* ═══════════════════════════════════════════════════════════
    ONBOARDING
@@ -1826,8 +1695,8 @@ function Onboarding({
           className="text-cream/80 text-sm leading-relaxed mb-10"
         >
           Découvrez <strong className="text-gold-light">{totalItems} plats</strong>,
-          commandez directement depuis votre téléphone, appelez le serveur en
-          un clic.
+          ajoutez à votre panier et envoyez votre commande directement
+          depuis votre téléphone.
         </motion.p>
         <motion.button
           initial={{ opacity: 0, y: 20 }}
@@ -2090,8 +1959,18 @@ function LoyaltySheet({
         aria-modal
         aria-label="Programme fidélité"
       >
-        <div className="sticky top-0 bg-cream/95 backdrop-blur pt-3 pb-2 px-5 flex justify-center">
+        <div className="sticky top-0 z-10 bg-cream/95 backdrop-blur pt-3 pb-2 px-5 flex items-center justify-center">
           <span className="w-10 h-1 rounded-full bg-brown/20" aria-hidden />
+          {/* Bouton X explicite en haut à droite — sur téléphone, le swipe-down
+              n'est pas évident. On donne une sortie claire. */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fermer la fidélité et revenir à la carte"
+            className="absolute top-2 right-3 w-10 h-10 rounded-full bg-white-warm/80 hover:bg-white-warm text-brown-light hover:text-brown flex items-center justify-center transition active:scale-90 shadow-sm border border-terracotta/15 text-xl leading-none"
+          >
+            ×
+          </button>
         </div>
 
         <div className="px-5 pb-10">
@@ -2389,7 +2268,18 @@ function PostOrderLoyaltyInvite({
         aria-modal
         aria-label="Invitation fidélité"
       >
-        <div className="flex items-start gap-4">
+        {/* Bouton X close en haut-droite — sortie évidente pour
+            l'utilisateur qui veut juste retourner à la carte. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fermer et retourner à la carte"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-cream/80 hover:bg-cream text-brown-light hover:text-brown flex items-center justify-center transition active:scale-90 text-lg"
+        >
+          ×
+        </button>
+
+        <div className="flex items-start gap-4 pr-8">
           <div className="w-12 h-12 rounded-full bg-gold/20 flex items-center justify-center text-2xl flex-shrink-0">
             ⭐
           </div>
@@ -2398,7 +2288,7 @@ function PostOrderLoyaltyInvite({
               Un tampon offert en bonus ?
             </h3>
             <p className="text-xs text-brown-light/90 mt-1 leading-snug">
-              Votre commande est envoyée en cuisine. Rejoignez notre programme
+              Votre commande est en cuisine ✓. Rejoignez le programme
               fidélité maintenant —{" "}
               {config
                 ? `${config.stamps_required} passages = ${config.reward_label}.`
@@ -2407,21 +2297,39 @@ function PostOrderLoyaltyInvite({
           </div>
         </div>
 
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 text-xs font-semibold text-brown-light hover:text-brown py-3 rounded-full transition"
-          >
-            Non merci
-          </button>
+        <div className="mt-5 space-y-2">
+          {/* CTA principal : rejoindre */}
           <button
             type="button"
             onClick={onAccept}
-            className="flex-[2] inline-flex items-center justify-center gap-1.5 bg-brown hover:bg-brown-light text-cream text-sm font-bold py-3 rounded-full transition active:scale-95"
+            className="w-full inline-flex items-center justify-center gap-2 bg-brown hover:bg-brown-light text-cream text-sm font-bold py-3.5 rounded-full transition active:scale-[0.98] shadow-md"
           >
             <span aria-hidden>⭐</span>
-            <span>Rejoindre</span>
+            <span>Rejoindre la fidélité</span>
+          </button>
+          {/* Sortie claire : gros bouton "Retour à la carte" — ce que
+              demandait l'utilisateur. Plus question de bloquer derrière
+              un "Non merci" microscopique. */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-brown-light hover:text-brown py-3 rounded-full border-2 border-terracotta/20 hover:border-terracotta/40 transition active:scale-[0.98]"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            Retour à la carte
           </button>
         </div>
       </motion.div>
