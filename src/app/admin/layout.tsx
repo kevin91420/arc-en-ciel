@@ -136,6 +136,15 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/parcours-demo",
+    label: "Parcours démo",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path d="M9 12l2 2 4-4M21 12c0 5-4 9-9 9s-9-4-9-9 4-9 9-9c2 0 4 .8 5.5 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/z-rapport",
     label: "Z fin service",
     icon: (
