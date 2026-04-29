@@ -33,7 +33,45 @@ import type { NextRequest } from "next/server";
 
 const ADMIN_COOKIE = "arc_admin_auth";
 const STAFF_COOKIE = "arc_staff_auth";
+const TENANT_COOKIE = "tenant_slug";
 const DEFAULT_PASSWORD = "admin2026";
+
+/* Sprint 7b — Multi-tenant : default fallback slug. Tant qu'aucune URL ne
+ * commence par /r/{slug}/ et qu'aucun cookie tenant_slug n'est posé, on
+ * cible le tenant historique Arc-en-Ciel. Ça garantit la compat 100%. */
+const DEFAULT_TENANT_SLUG = "arc-en-ciel";
+
+/**
+ * Résout le slug du tenant pour cette requête, dans cet ordre :
+ *   1. Préfixe URL `/r/{slug}/...` (futur — pas encore actif sur le code)
+ *   2. Cookie `tenant_slug` (posé après login d'un super-admin)
+ *   3. Fallback `arc-en-ciel`
+ *
+ * Renvoie aussi le `pathnameWithoutSlug` qui retire le préfixe `/r/{slug}`
+ * de l'URL pour que le routing Next continue de matcher les routes existantes.
+ */
+function resolveTenantFromRequest(
+  request: NextRequest
+): { slug: string; pathnameWithoutSlug: string } {
+  const { pathname } = request.nextUrl;
+
+  /* 1. Préfixe URL `/r/{slug}/...` */
+  const tenantPathMatch = pathname.match(/^\/r\/([a-z0-9-]+)(\/.*)?$/);
+  if (tenantPathMatch) {
+    const slug = tenantPathMatch[1];
+    const rest = tenantPathMatch[2] || "/";
+    return { slug, pathnameWithoutSlug: rest };
+  }
+
+  /* 2. Cookie tenant_slug */
+  const cookieSlug = request.cookies.get(TENANT_COOKIE)?.value;
+  if (cookieSlug && /^[a-z0-9-]+$/.test(cookieSlug)) {
+    return { slug: cookieSlug, pathnameWithoutSlug: pathname };
+  }
+
+  /* 3. Fallback */
+  return { slug: DEFAULT_TENANT_SLUG, pathnameWithoutSlug: pathname };
+}
 
 function getExpectedPassword(): string {
   return process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD;
@@ -94,18 +132,43 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method;
 
+  /* ─── Sprint 7b : résolution du tenant ────────────────────
+   * On ajoute le slug en header pour que tenant.ts puisse le lire.
+   * Cette logique est 100% backward-compatible : sans cookie ni URL
+   * /r/{slug}, on tombe sur "arc-en-ciel" et tout marche comme avant. */
+  const { slug: tenantSlug, pathnameWithoutSlug } = resolveTenantFromRequest(request);
+
+  /* On clone les headers pour pouvoir injecter X-Tenant-Slug. */
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-tenant-slug", tenantSlug);
+
+  /* Helper pour produire un NextResponse.next() avec les headers tenant. */
+  const passThrough = () =>
+    NextResponse.next({ request: { headers: requestHeaders } });
+
+  /* Si l'URL commence par /r/{slug}/, on rewrite vers le path sans préfixe.
+   * L'app continue de fonctionner avec les routes existantes (/admin, /staff, etc.)
+   * mais le tenant slug est maintenant en header. */
+  if (pathname !== pathnameWithoutSlug) {
+    const rewritten = request.nextUrl.clone();
+    rewritten.pathname = pathnameWithoutSlug;
+    return NextResponse.rewrite(rewritten, {
+      request: { headers: requestHeaders },
+    });
+  }
+
   /* ─── Always-public endpoints ─────────────────────────── */
   // Login pages (otherwise we redirect ourselves into a loop).
-  if (pathname === "/admin/login") return NextResponse.next();
-  if (pathname === "/staff/login") return NextResponse.next();
+  if (pathname === "/admin/login") return passThrough();
+  if (pathname === "/staff/login") return passThrough();
 
   // Auth APIs are always public (that's how you log in / log out).
-  if (pathname.startsWith("/api/admin/auth")) return NextResponse.next();
-  if (pathname.startsWith("/api/staff/auth")) return NextResponse.next();
+  if (pathname.startsWith("/api/admin/auth")) return passThrough();
+  if (pathname.startsWith("/api/staff/auth")) return passThrough();
 
   // Mobile / QR-menu public API (customer submits their cart from /m/carte).
   // Has its own IP rate limiting inside the route handler.
-  if (pathname.startsWith("/api/m/")) return NextResponse.next();
+  if (pathname.startsWith("/api/m/")) return passThrough();
 
   /* ─── Cookie lookups ──────────────────────────────────── */
   const adminCookie = request.cookies.get(ADMIN_COOKIE)?.value;
@@ -117,7 +180,7 @@ export function proxy(request: NextRequest) {
 
   /* ─── Admin pages ─────────────────────────────────────── */
   if (pathname.startsWith("/admin")) {
-    if (adminAuthed) return NextResponse.next();
+    if (adminAuthed) return passThrough();
     const loginUrl = new URL("/admin/login", request.url);
     if (pathname !== "/admin") {
       loginUrl.searchParams.set("from", pathname);
@@ -127,7 +190,7 @@ export function proxy(request: NextRequest) {
 
   /* ─── Staff (POS) pages ───────────────────────────────── */
   if (pathname.startsWith("/staff")) {
-    if (staffAuthed) return NextResponse.next();
+    if (staffAuthed) return passThrough();
     const loginUrl = new URL("/staff/login", request.url);
     if (pathname !== "/staff") {
       loginUrl.searchParams.set("from", pathname);
@@ -138,7 +201,7 @@ export function proxy(request: NextRequest) {
   /* ─── Kitchen display (KDS) pages ─────────────────────── */
   // Shares the staff cookie — the chef logs in on /staff/login with a PIN.
   if (pathname === "/kitchen" || pathname.startsWith("/kitchen/")) {
-    if (staffAuthed) return NextResponse.next();
+    if (staffAuthed) return passThrough();
     const loginUrl = new URL("/staff/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
@@ -146,7 +209,7 @@ export function proxy(request: NextRequest) {
 
   /* ─── Protected API routes ────────────────────────────── */
   if (isProtectedStaffApi(pathname)) {
-    if (staffAuthed) return NextResponse.next();
+    if (staffAuthed) return passThrough();
     return NextResponse.json(
       { error: "Unauthorized — staff session required" },
       { status: 401 }
@@ -154,14 +217,14 @@ export function proxy(request: NextRequest) {
   }
 
   if (isProtectedAdminApi(pathname, method)) {
-    if (adminAuthed) return NextResponse.next();
+    if (adminAuthed) return passThrough();
     return NextResponse.json(
       { error: "Unauthorized — admin session required" },
       { status: 401 }
     );
   }
 
-  return NextResponse.next();
+  return passThrough();
 }
 
 /**
@@ -176,5 +239,10 @@ export const config = {
     "/kitchen",
     "/kitchen/:path*",
     "/api/:path*",
+    /* Sprint 7b : tenant-prefixed URLs (futur). Le proxy rewrite vers
+     * la route sans préfixe + injecte X-Tenant-Slug. */
+    "/r/:slug/:path*",
+    /* QR menu public (besoin du tenant pour charger le bon menu) */
+    "/m/:path*",
   ],
 };
