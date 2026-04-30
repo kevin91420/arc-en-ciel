@@ -174,6 +174,35 @@ const NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    /* Sprint 7b — Console super-admin SaaS. Visible uniquement quand
+     * y'aura un vrai role super-admin, mais pour l'instant accessible
+     * via le cookie admin standard. */
+    href: "/admin/restaurants",
+    label: "Restaurants",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path
+          d="M3 21V8l9-5 9 5v13"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M9 21v-7h6v7"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M3 21h18"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
 ];
 
 export default function AdminLayout({
