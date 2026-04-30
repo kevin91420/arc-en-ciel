@@ -73,7 +73,16 @@ export async function isSlugAvailable(slug: string): Promise<boolean> {
 }
 
 /**
- * Crée un nouveau restaurant. Throw si le slug est déjà pris.
+ * Crée un nouveau restaurant + seed les defaults (settings + loyalty_config).
+ * Throw si le slug est déjà pris.
+ *
+ * Auto-seeding : à la création d'un nouveau tenant, on insère immédiatement :
+ *   - 1 row dans `restaurant_settings` avec les defaults (tables, branding)
+ *   - 1 row dans `loyalty_config` avec un programme par défaut
+ *
+ * Comme ça le nouveau tenant peut log dans /admin tout de suite sans erreur.
+ * Le menu reste vide — il sera seedé soit par l'onboarding wizard, soit par
+ * `seedMenuFromCarte()` à la 1ère édition.
  */
 export async function createRestaurant(
   payload: CreateRestaurantPayload
@@ -111,8 +120,59 @@ export async function createRestaurant(
     method: "POST",
     body: JSON.stringify(row),
   });
+
+  /* Auto-seed defaults pour ce nouveau tenant — soft fail si une étape
+   * casse, le tenant restera utilisable, juste avec defaults vides. */
+  await seedDefaultsForNewTenant(created.id, payload.name).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[restaurants-client] seedDefaultsForNewTenant failed:", err);
+  });
+
   invalidateTenantCache();
   return created;
+}
+
+/**
+ * Seed les defaults pour un nouveau tenant : settings + loyalty_config.
+ * Appelé après createRestaurant. Ne seed PAS le menu (l'onboarding wizard ou
+ * seedMenuFromCarte le font à la demande).
+ */
+async function seedDefaultsForNewTenant(
+  restaurantId: string,
+  restaurantName: string
+): Promise<void> {
+  /* 1. restaurant_settings : 10 tables par défaut + branding minimal */
+  const defaultTables = Array.from({ length: 10 }, (_, i) => ({
+    number: i + 1,
+    label: `T${i + 1}`,
+    capacity: 4,
+    zone: "Salle",
+  }));
+  await sb("restaurant_settings", {
+    method: "POST",
+    body: JSON.stringify({
+      restaurant_id: restaurantId,
+      tables: defaultTables,
+      eighty_six_list: [],
+      active_card_id: "default",
+    }),
+  }).catch(() => null);
+
+  /* 2. loyalty_config : programme désactivé par défaut, le patron l'active
+   * quand il veut depuis /admin/parametres. */
+  await sb("loyalty_config", {
+    method: "POST",
+    body: JSON.stringify({
+      restaurant_id: restaurantId,
+      stamps_required: 5,
+      reward_label: "Une boisson offerte",
+      reward_description: "Valable sur toutes les boissons.",
+      welcome_message: `Bienvenue dans le programme fidélité de ${restaurantName} !`,
+      brand_color: "#5b3a29",
+      accent_color: "#b8922f",
+      active: false,
+    }),
+  }).catch(() => null);
 }
 
 /**

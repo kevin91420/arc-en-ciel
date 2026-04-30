@@ -1,6 +1,14 @@
 /**
  * POS CLIENT — DB functions for orders, items, staff, stats.
- * Supabase-first (memory fallback minimal — POS needs a real DB).
+ * Sprint 7b Phase F : tenant-aware. Toutes les queries filtrent par
+ * `restaurant_id` du tenant courant (résolu via getCurrentTenantId()).
+ *
+ * Les inserts incluent `restaurant_id` dans le body. Les patches/deletes
+ * filtrent par restaurant_id pour empêcher de toucher les données d'un
+ * autre tenant.
+ *
+ * Pour les contextes hors-requête (seed scripts, webhooks Stripe), un
+ * `tenantId` explicite peut être passé en dernier argument.
  */
 
 import type {
@@ -23,6 +31,7 @@ import type {
   RefundMethod,
   CashSession,
 } from "./pos-types";
+import { getCurrentTenantId } from "./tenant";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,13 +56,25 @@ async function sb<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function resolveTenantId(explicit?: string): Promise<string> {
+  return explicit ?? (await getCurrentTenantId());
+}
+
+/** Filter clause "&restaurant_id=eq.<uuid>" — pré-formaté pour PostgREST. */
+function tenantClause(tenantId: string): string {
+  return `&restaurant_id=eq.${encodeURIComponent(tenantId)}`;
+}
+
 /* ═══════════════════════════════════════════════════════════
-   STAFF AUTH — PIN-based
+   STAFF AUTH — PIN-based (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
-export async function findStaffByPin(pin: string): Promise<StaffMember | null> {
+export async function findStaffByPin(
+  pin: string,
+  tenantId?: string
+): Promise<StaffMember | null> {
   if (!USE_SUPABASE) {
-    /* Demo fallback */
+    /* Demo fallback — pas de tenant filtering en mode mémoire */
     if (pin === "1234")
       return {
         id: "demo-manager",
@@ -87,33 +108,43 @@ export async function findStaffByPin(pin: string): Promise<StaffMember | null> {
     return null;
   }
 
+  const tid = await resolveTenantId(tenantId);
   const rows = await sb<StaffMember[]>(
-    `staff_members?select=*&pin_code=eq.${encodeURIComponent(pin)}&active=eq.true&limit=1`
+    `staff_members?select=*&pin_code=eq.${encodeURIComponent(pin)}&active=eq.true${tenantClause(tid)}&limit=1`
   );
   return rows[0] || null;
 }
 
-export async function listStaff(): Promise<StaffMember[]> {
+export async function listStaff(tenantId?: string): Promise<StaffMember[]> {
   if (!USE_SUPABASE) return [];
-  return sb<StaffMember[]>(`staff_members?select=*&active=eq.true&order=name.asc`);
+  const tid = await resolveTenantId(tenantId);
+  return sb<StaffMember[]>(
+    `staff_members?select=*&active=eq.true${tenantClause(tid)}&order=name.asc`
+  );
 }
 
-export async function getStaffById(id: string): Promise<StaffMember | null> {
+export async function getStaffById(
+  id: string,
+  tenantId?: string
+): Promise<StaffMember | null> {
   if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
   const rows = await sb<StaffMember[]>(
-    `staff_members?select=*&id=eq.${id}&limit=1`
+    `staff_members?select=*&id=eq.${id}${tenantClause(tid)}&limit=1`
   );
   return rows[0] || null;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ORDERS
+   ORDERS (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export async function createOrder(
-  payload: CreateOrderPayload
+  payload: CreateOrderPayload,
+  tenantId?: string
 ): Promise<Order> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const [row] = await sb<Order[]>(`orders`, {
     method: "POST",
     body: JSON.stringify({
@@ -124,23 +155,30 @@ export async function createOrder(
       customer_id: payload.customer_id,
       notes: payload.notes,
       status: "open",
+      restaurant_id: tid,
     }),
   });
   return row;
 }
 
-export async function getOrder(id: string): Promise<OrderWithItems | null> {
+export async function getOrder(
+  id: string,
+  tenantId?: string
+): Promise<OrderWithItems | null> {
   if (!USE_SUPABASE) return null;
-  const [order] = await sb<Order[]>(`orders?select=*&id=eq.${id}&limit=1`);
+  const tid = await resolveTenantId(tenantId);
+  const [order] = await sb<Order[]>(
+    `orders?select=*&id=eq.${id}${tenantClause(tid)}&limit=1`
+  );
   if (!order) return null;
   const items = await sb<OrderItem[]>(
-    `order_items?select=*&order_id=eq.${id}&order=created_at.asc`
+    `order_items?select=*&order_id=eq.${id}${tenantClause(tid)}&order=created_at.asc`
   );
   let staffName: string | undefined;
   let staffColor: string | undefined;
   if (order.staff_id) {
     const [staff] = await sb<StaffMember[]>(
-      `staff_members?select=name,color&id=eq.${order.staff_id}&limit=1`
+      `staff_members?select=name,color&id=eq.${order.staff_id}${tenantClause(tid)}&limit=1`
     );
     staffName = staff?.name;
     staffColor = staff?.color;
@@ -150,38 +188,46 @@ export async function getOrder(id: string): Promise<OrderWithItems | null> {
 
 /**
  * Get active order for a table (status in open/fired/ready), if any.
+ * Filtré par tenant — table 5 d'Arc-en-Ciel ≠ table 5 de Pizzeria-Test.
  */
 export async function getActiveOrderForTable(
-  tableNumber: number
+  tableNumber: number,
+  tenantId?: string
 ): Promise<OrderWithItems | null> {
   if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
   const rows = await sb<Order[]>(
-    `orders?select=*&table_number=eq.${tableNumber}&status=in.(open,fired,ready,served)&order=created_at.desc&limit=1`
+    `orders?select=*&table_number=eq.${tableNumber}&status=in.(open,fired,ready,served)${tenantClause(tid)}&order=created_at.desc&limit=1`
   );
   if (rows.length === 0) return null;
-  return getOrder(rows[0].id);
+  return getOrder(rows[0].id, tid);
 }
 
-export async function listActiveOrders(): Promise<OrderWithItems[]> {
+export async function listActiveOrders(
+  tenantId?: string
+): Promise<OrderWithItems[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
   const orders = await sb<Order[]>(
-    `orders?select=*&status=in.(open,fired,ready,served)&order=created_at.desc`
+    `orders?select=*&status=in.(open,fired,ready,served)${tenantClause(tid)}&order=created_at.desc`
   );
   if (orders.length === 0) return [];
   const ids = orders.map((o) => o.id);
   const items = await sb<OrderItem[]>(
-    `order_items?select=*&order_id=in.(${ids.map((i) => `"${i}"`).join(",")})&order=created_at.asc`
+    `order_items?select=*&order_id=in.(${ids.map((i) => `"${i}"`).join(",")})${tenantClause(tid)}&order=created_at.asc`
   );
   const itemsByOrder = new Map<string, OrderItem[]>();
   for (const item of items) {
     if (!itemsByOrder.has(item.order_id)) itemsByOrder.set(item.order_id, []);
     itemsByOrder.get(item.order_id)!.push(item);
   }
-  const staffIds = [...new Set(orders.map((o) => o.staff_id).filter(Boolean))] as string[];
+  const staffIds = [
+    ...new Set(orders.map((o) => o.staff_id).filter(Boolean)),
+  ] as string[];
   const staffMap = new Map<string, { name: string; color: string }>();
   if (staffIds.length > 0) {
     const staff = await sb<StaffMember[]>(
-      `staff_members?select=id,name,color&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+      `staff_members?select=id,name,color&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})${tenantClause(tid)}`
     );
     for (const s of staff) staffMap.set(s.id, { name: s.name, color: s.color });
   }
@@ -195,9 +241,11 @@ export async function listActiveOrders(): Promise<OrderWithItems[]> {
 
 export async function addItemsToOrder(
   orderId: string,
-  payload: AddItemsPayload
+  payload: AddItemsPayload,
+  tenantId?: string
 ): Promise<OrderWithItems> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const rows = payload.items.map((item) => ({
     order_id: orderId,
     menu_item_id: item.menu_item_id,
@@ -209,36 +257,45 @@ export async function addItemsToOrder(
     notes: item.notes,
     station: item.station || "main",
     status: "pending",
+    restaurant_id: tid,
   }));
   await sb(`order_items`, {
     method: "POST",
     body: JSON.stringify(rows),
   });
-  await recomputeOrderTotals(orderId);
-  const updated = await getOrder(orderId);
+  await recomputeOrderTotals(orderId, tid);
+  const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found after add");
   return updated;
 }
 
-export async function removeItem(itemId: string): Promise<void> {
+export async function removeItem(
+  itemId: string,
+  tenantId?: string
+): Promise<void> {
   if (!USE_SUPABASE) return;
+  const tid = await resolveTenantId(tenantId);
   const [item] = await sb<OrderItem[]>(
-    `order_items?select=order_id&id=eq.${itemId}&limit=1`
+    `order_items?select=order_id&id=eq.${itemId}${tenantClause(tid)}&limit=1`
   );
-  await sb(`order_items?id=eq.${itemId}`, { method: "DELETE" });
-  if (item?.order_id) await recomputeOrderTotals(item.order_id);
+  await sb(`order_items?id=eq.${itemId}${tenantClause(tid)}`, {
+    method: "DELETE",
+  });
+  if (item?.order_id) await recomputeOrderTotals(item.order_id, tid);
 }
 
 export async function updateItemStatus(
   itemId: string,
-  status: OrderItem["status"]
+  status: OrderItem["status"],
+  tenantId?: string
 ): Promise<void> {
   if (!USE_SUPABASE) return;
+  const tid = await resolveTenantId(tenantId);
   const updates: Record<string, unknown> = { status };
   if (status === "cooking") updates.fired_at = new Date().toISOString();
   if (status === "ready") updates.ready_at = new Date().toISOString();
   if (status === "served") updates.served_at = new Date().toISOString();
-  await sb(`order_items?id=eq.${itemId}`, {
+  await sb(`order_items?id=eq.${itemId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
   });
@@ -248,19 +305,15 @@ export async function updateItemStatus(
  * Update editable fields on a pending order item.
  *
  * Business rule: quantity / modifiers / notes can ONLY be edited while the
- * item is still `pending` (i.e. not yet fired to the kitchen). Once the chef
- * has started working on it, the line is immutable from the server side —
- * any further change must be a new line.
+ * item is still `pending` (i.e. not yet fired to the kitchen).
  *
- * `status` transitions remain allowed at any point (e.g. cancel a cooking
- * item) and fall through to the same code path as {@link updateItemStatus}.
- *
- * Throws `ItemNotPendingError` if the caller asks to edit quantity /
- * modifiers / notes on a non-pending item.
+ * Throws `ItemNotPendingError` si on tente de modifier un item non-pending.
  */
 export class ItemNotPendingError extends Error {
   constructor(public readonly currentStatus: OrderItem["status"]) {
-    super(`Item is ${currentStatus}, not pending — cannot edit quantity/modifiers/notes`);
+    super(
+      `Item is ${currentStatus}, not pending — cannot edit quantity/modifiers/notes`
+    );
     this.name = "ItemNotPendingError";
   }
 }
@@ -274,19 +327,19 @@ export interface UpdateItemPayload {
 
 export async function updateItem(
   itemId: string,
-  updates: UpdateItemPayload
+  updates: UpdateItemPayload,
+  tenantId?: string
 ): Promise<OrderItem | null> {
   if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
 
   const wantsMutableFields =
     updates.quantity !== undefined ||
     updates.modifiers !== undefined ||
     updates.notes !== undefined;
 
-  /* Read the current item so we can (a) enforce the pending guard and
-   * (b) know which order to recompute at the end. */
   const [current] = await sb<OrderItem[]>(
-    `order_items?select=*&id=eq.${itemId}&limit=1`
+    `order_items?select=*&id=eq.${itemId}${tenantClause(tid)}&limit=1`
   );
   if (!current) return null;
 
@@ -310,21 +363,24 @@ export async function updateItem(
   }
   if (updates.status !== undefined) {
     patch.status = updates.status;
-    if (updates.status === "cooking") patch.fired_at = new Date().toISOString();
+    if (updates.status === "cooking")
+      patch.fired_at = new Date().toISOString();
     if (updates.status === "ready") patch.ready_at = new Date().toISOString();
-    if (updates.status === "served") patch.served_at = new Date().toISOString();
+    if (updates.status === "served")
+      patch.served_at = new Date().toISOString();
   }
 
   if (Object.keys(patch).length === 0) return current;
 
-  const [updated] = await sb<OrderItem[]>(`order_items?id=eq.${itemId}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch),
-  });
+  const [updated] = await sb<OrderItem[]>(
+    `order_items?id=eq.${itemId}${tenantClause(tid)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }
+  );
 
-  /* Totals only move when quantity or status (cancellations) change; we
-   * recompute unconditionally since it's cheap and keeps the invariant. */
-  await recomputeOrderTotals(current.order_id);
+  await recomputeOrderTotals(current.order_id, tid);
 
   return updated ?? current;
 }
@@ -332,36 +388,41 @@ export async function updateItem(
 /**
  * Fire the order → mark all pending items as cooking.
  */
-export async function fireOrder(orderId: string): Promise<OrderWithItems> {
+export async function fireOrder(
+  orderId: string,
+  tenantId?: string
+): Promise<OrderWithItems> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const now = new Date().toISOString();
-  await sb(`order_items?order_id=eq.${orderId}&status=eq.pending`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "cooking", fired_at: now }),
-  });
-  await sb(`orders?id=eq.${orderId}`, {
+  await sb(
+    `order_items?order_id=eq.${orderId}&status=eq.pending${tenantClause(tid)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "cooking", fired_at: now }),
+    }
+  );
+  await sb(`orders?id=eq.${orderId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify({ status: "fired", fired_at: now }),
   });
-  const updated = await getOrder(orderId);
+  const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found after fire");
   return updated;
 }
 
 /**
- * Fire only the pending items whose category matches the given list of
- * categories — lets the server "lancer les entrées" first, then "lancer les
- * plats" when the table is ready. The order moves to `fired` as soon as
- * *anything* is in the kitchen.
+ * Fire only the pending items whose category matches the given list of categories.
  */
 export async function fireOrderByCategories(
   orderId: string,
-  categories: string[]
+  categories: string[],
+  tenantId?: string
 ): Promise<OrderWithItems> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   if (categories.length === 0) {
-    /* Nothing to fire — return the order as-is. */
-    const current = await getOrder(orderId);
+    const current = await getOrder(orderId, tid);
     if (!current) throw new Error("Order not found");
     return current;
   }
@@ -370,67 +431,72 @@ export async function fireOrderByCategories(
     .map((c) => `"${c.replace(/"/g, "")}"`)
     .join(",");
   await sb(
-    `order_items?order_id=eq.${orderId}&status=eq.pending&menu_item_category=in.(${catList})`,
+    `order_items?order_id=eq.${orderId}&status=eq.pending&menu_item_category=in.(${catList})${tenantClause(tid)}`,
     {
       method: "PATCH",
       body: JSON.stringify({ status: "cooking", fired_at: now }),
     }
   );
-  /* Bump order.status to `fired` if it isn't already. */
-  await sb(`orders?id=eq.${orderId}&status=eq.open`, {
+  await sb(`orders?id=eq.${orderId}&status=eq.open${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify({ status: "fired", fired_at: now }),
   });
-  const updated = await getOrder(orderId);
+  const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found after fire");
   return updated;
 }
 
 /**
- * Set the flags array on an order. Flags are additive tags ("rush" /
- * "allergy" / "birthday" / "vip"). Pass an empty array to clear them.
+ * Set the flags array on an order.
  */
 export async function setOrderFlags(
   orderId: string,
-  flags: OrderFlag[]
+  flags: OrderFlag[],
+  tenantId?: string
 ): Promise<OrderWithItems> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
-  await sb(`orders?id=eq.${orderId}`, {
+  const tid = await resolveTenantId(tenantId);
+  await sb(`orders?id=eq.${orderId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify({ flags }),
   });
-  const updated = await getOrder(orderId);
+  const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found");
   return updated;
 }
 
 /**
  * Mark a `ready` item as picked up by the server (acknowledged_at = now).
- * The chef sees "parti en salle" without the row being marked served yet,
- * so the customer can still flag a problem before the cycle closes.
  */
 export async function acknowledgeItem(
-  itemId: string
+  itemId: string,
+  tenantId?: string
 ): Promise<OrderItem | null> {
   if (!USE_SUPABASE) return null;
-  const [updated] = await sb<OrderItem[]>(`order_items?id=eq.${itemId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ acknowledged_at: new Date().toISOString() }),
-  });
+  const tid = await resolveTenantId(tenantId);
+  const [updated] = await sb<OrderItem[]>(
+    `order_items?id=eq.${itemId}${tenantClause(tid)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ acknowledged_at: new Date().toISOString() }),
+    }
+  );
   return updated ?? null;
 }
 
 export async function updateOrderStatus(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  tenantId?: string
 ): Promise<void> {
   if (!USE_SUPABASE) return;
+  const tid = await resolveTenantId(tenantId);
   const updates: Record<string, unknown> = { status };
   const now = new Date().toISOString();
   if (status === "ready") updates.ready_at = now;
   if (status === "served") updates.served_at = now;
   if (status === "paid") updates.paid_at = now;
-  await sb(`orders?id=eq.${orderId}`, {
+  await sb(`orders?id=eq.${orderId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
   });
@@ -439,10 +505,12 @@ export async function updateOrderStatus(
 export async function payOrder(
   orderId: string,
   method: PaymentMethod,
-  tipCents = 0
+  tipCents = 0,
+  tenantId?: string
 ): Promise<void> {
   if (!USE_SUPABASE) return;
-  await sb(`orders?id=eq.${orderId}`, {
+  const tid = await resolveTenantId(tenantId);
+  await sb(`orders?id=eq.${orderId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify({
       status: "paid",
@@ -454,23 +522,27 @@ export async function payOrder(
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ORDER PAYMENTS — split par items / split par couverts (multi-row)
+   ORDER PAYMENTS — split par items / split par couverts (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export async function listPaymentsForOrder(
-  orderId: string
+  orderId: string,
+  tenantId?: string
 ): Promise<OrderPayment[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
   return sb<OrderPayment[]>(
-    `order_payments?select=*&order_id=eq.${orderId}&order=created_at.asc`
+    `order_payments?select=*&order_id=eq.${orderId}${tenantClause(tid)}&order=created_at.asc`
   );
 }
 
 export async function addPayment(
   orderId: string,
-  payload: CreatePaymentPayload
+  payload: CreatePaymentPayload,
+  tenantId?: string
 ): Promise<OrderPayment> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const [row] = await sb<OrderPayment[]>("order_payments", {
     method: "POST",
     body: JSON.stringify({
@@ -481,18 +553,25 @@ export async function addPayment(
       item_ids: payload.item_ids ?? [],
       staff_id: payload.staff_id ?? null,
       notes: payload.notes ?? null,
+      restaurant_id: tid,
     }),
   });
   return row;
 }
 
-export async function deletePayment(paymentId: string): Promise<void> {
+export async function deletePayment(
+  paymentId: string,
+  tenantId?: string
+): Promise<void> {
   if (!USE_SUPABASE) return;
-  await sb(`order_payments?id=eq.${paymentId}`, { method: "DELETE" });
+  const tid = await resolveTenantId(tenantId);
+  await sb(`order_payments?id=eq.${paymentId}${tenantClause(tid)}`, {
+    method: "DELETE",
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ORDER HISTORY — paid orders for a day (server + admin views)
+   ORDER HISTORY (paid orders for a day)
    ═══════════════════════════════════════════════════════════ */
 
 export interface PaidOrderHistoryEntry {
@@ -513,7 +592,7 @@ export interface PaidOrderHistoryEntry {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ORDER CANCELLATIONS — annulation + remboursement
+   ORDER CANCELLATIONS — tenant-scoped
    ═══════════════════════════════════════════════════════════ */
 
 export async function cancelOrder(
@@ -524,16 +603,17 @@ export async function cancelOrder(
     refund_method?: RefundMethod;
     refund_amount_cents?: number;
     staff_id?: string;
-  }
+  },
+  tenantId?: string
 ): Promise<OrderCancellation> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const refundMethod = payload.refund_method ?? "none";
   const refundAmount = Math.max(
     0,
     Math.round(payload.refund_amount_cents ?? 0)
   );
 
-  /* 1. Create the audit row first so we have a permanent trace. */
   const [row] = await sb<OrderCancellation[]>(`order_cancellations`, {
     method: "POST",
     body: JSON.stringify({
@@ -543,25 +623,25 @@ export async function cancelOrder(
       cancelled_by: payload.staff_id ?? null,
       refund_method: refundMethod,
       refund_amount_cents: refundAmount,
+      restaurant_id: tid,
     }),
   });
 
-  /* 2. Move the order to cancelled status. Cancelled items are skipped by
-   *    every report (subtotal/tax recompute filters them out). */
-  await sb(`orders?id=eq.${orderId}`, {
+  await sb(`orders?id=eq.${orderId}${tenantClause(tid)}`, {
     method: "PATCH",
     body: JSON.stringify({
       status: "cancelled",
       paid_at: null,
     }),
   });
-  await sb(`order_items?order_id=eq.${orderId}&status=in.(pending,cooking,ready,served)`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "cancelled" }),
-  });
+  await sb(
+    `order_items?order_id=eq.${orderId}&status=in.(pending,cooking,ready,served)${tenantClause(tid)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "cancelled" }),
+    }
+  );
 
-  /* 3. If a refund was given via cash/card, record it as a negative payment
-   *    so the cash drawer reconciliation reflects the loss. */
   if (refundAmount > 0 && refundMethod !== "voucher" && refundMethod !== "none") {
     await sb(`order_payments`, {
       method: "POST",
@@ -571,42 +651,51 @@ export async function cancelOrder(
         tip_cents: 0,
         method: refundMethod,
         notes: `Remboursement (${payload.reason})`,
+        restaurant_id: tid,
       }),
-    }).catch(() => null); /* non-fatal */
+    }).catch(() => null);
   }
 
   return row;
 }
 
 export async function listCancellationsForOrder(
-  orderId: string
+  orderId: string,
+  tenantId?: string
 ): Promise<OrderCancellation[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
   return sb<OrderCancellation[]>(
-    `order_cancellations?select=*&order_id=eq.${orderId}&order=cancelled_at.desc`
+    `order_cancellations?select=*&order_id=eq.${orderId}${tenantClause(tid)}&order=cancelled_at.desc`
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   CASH SESSIONS — ouverture / fermeture de caisse
+   CASH SESSIONS — tenant-scoped
    ═══════════════════════════════════════════════════════════ */
 
-export async function getCurrentCashSession(): Promise<CashSession | null> {
+export async function getCurrentCashSession(
+  tenantId?: string
+): Promise<CashSession | null> {
   if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
   const rows = await sb<CashSession[]>(
-    `cash_sessions?select=*&closed_at=is.null&order=opened_at.desc&limit=1`
+    `cash_sessions?select=*&closed_at=is.null${tenantClause(tid)}&order=opened_at.desc&limit=1`
   );
   return rows[0] || null;
 }
 
-export async function openCashSession(payload: {
-  opening_amount_cents: number;
-  staff_id?: string;
-  notes?: string;
-}): Promise<CashSession> {
+export async function openCashSession(
+  payload: {
+    opening_amount_cents: number;
+    staff_id?: string;
+    notes?: string;
+  },
+  tenantId?: string
+): Promise<CashSession> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
-  /* Refuse to open a 2nd session while another is still open. */
-  const existing = await getCurrentCashSession();
+  const tid = await resolveTenantId(tenantId);
+  const existing = await getCurrentCashSession(tid);
   if (existing) {
     throw new Error("Une session de caisse est déjà ouverte.");
   }
@@ -619,19 +708,20 @@ export async function openCashSession(payload: {
       ),
       opened_by: payload.staff_id ?? null,
       notes: payload.notes ?? null,
+      restaurant_id: tid,
     }),
   });
   return row;
 }
 
-/** Sum of all cash payments since the session opened (positive = encaissé,
- * negative = remboursé). */
 export async function computeCashTakingsSinceOpen(
-  sessionOpenedAt: string
+  sessionOpenedAt: string,
+  tenantId?: string
 ): Promise<number> {
   if (!USE_SUPABASE) return 0;
+  const tid = await resolveTenantId(tenantId);
   const rows = await sb<{ amount_cents: number }[]>(
-    `order_payments?select=amount_cents&method=eq.cash&created_at=gte.${encodeURIComponent(sessionOpenedAt)}`
+    `order_payments?select=amount_cents&method=eq.cash&created_at=gte.${encodeURIComponent(sessionOpenedAt)}${tenantClause(tid)}`
   );
   return rows.reduce((s, r) => s + (r.amount_cents || 0), 0);
 }
@@ -642,20 +732,22 @@ export async function closeCashSession(
     actual_cash_cents: number;
     staff_id?: string;
     notes?: string;
-  }
+  },
+  tenantId?: string
 ): Promise<CashSession> {
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
   const [session] = await sb<CashSession[]>(
-    `cash_sessions?select=*&id=eq.${sessionId}&limit=1`
+    `cash_sessions?select=*&id=eq.${sessionId}${tenantClause(tid)}&limit=1`
   );
   if (!session) throw new Error("Session de caisse introuvable.");
   if (session.closed_at) throw new Error("Session déjà fermée.");
 
-  const takings = await computeCashTakingsSinceOpen(session.opened_at);
+  const takings = await computeCashTakingsSinceOpen(session.opened_at, tid);
   const expected = session.opening_amount_cents + takings;
 
   const [row] = await sb<CashSession[]>(
-    `cash_sessions?id=eq.${sessionId}`,
+    `cash_sessions?id=eq.${sessionId}${tenantClause(tid)}`,
     {
       method: "PATCH",
       body: JSON.stringify({
@@ -673,22 +765,24 @@ export async function closeCashSession(
 }
 
 export async function listCashSessions(
-  isoDate: string
+  isoDate: string,
+  tenantId?: string
 ): Promise<CashSession[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
   const start = new Date(`${isoDate}T00:00:00`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return sb<CashSession[]>(
-    `cash_sessions?select=*&opened_at=gte.${encodeURIComponent(start.toISOString())}&opened_at=lt.${encodeURIComponent(end.toISOString())}&order=opened_at.asc`
+    `cash_sessions?select=*&opened_at=gte.${encodeURIComponent(start.toISOString())}&opened_at=lt.${encodeURIComponent(end.toISOString())}${tenantClause(tid)}&order=opened_at.asc`
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Z REPORT — rapport de fin de service (jour entier)
+   Z REPORT — rapport de fin de service (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export interface ZReport {
-  date: string;                // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   generated_at: string;
   totals: {
     orders_count: number;
@@ -735,7 +829,10 @@ export interface ZReport {
   }>;
 }
 
-export async function getZReport(isoDate: string): Promise<ZReport> {
+export async function getZReport(
+  isoDate: string,
+  tenantId?: string
+): Promise<ZReport> {
   const generated_at = new Date().toISOString();
   if (!USE_SUPABASE) {
     return {
@@ -761,55 +858,56 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
       cancellations: [],
     };
   }
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
 
   const start = new Date(`${isoDate}T00:00:00`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   const startISO = start.toISOString();
   const endISO = end.toISOString();
 
-  /* All paid orders of the day. */
   const orders = await sb<Order[]>(
-    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}&order=paid_at.asc`
+    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}${tc}&order=paid_at.asc`
   );
 
-  /* Cancelled orders of the day (audit + refunds). */
   const cancelled = await sb<Order[]>(
-    `orders?select=*&status=eq.cancelled&updated_at=gte.${encodeURIComponent(startISO)}&updated_at=lt.${encodeURIComponent(endISO)}`
+    `orders?select=*&status=eq.cancelled&updated_at=gte.${encodeURIComponent(startISO)}&updated_at=lt.${encodeURIComponent(endISO)}${tc}`
   );
-  const cancellationDetails = cancelled.length > 0
-    ? await sb<OrderCancellation[]>(
-        `order_cancellations?select=*&order_id=in.(${cancelled.map((o) => `"${o.id}"`).join(",")})`
-      )
-    : [];
+  const cancellationDetails =
+    cancelled.length > 0
+      ? await sb<OrderCancellation[]>(
+          `order_cancellations?select=*&order_id=in.(${cancelled.map((o) => `"${o.id}"`).join(",")})${tc}`
+        )
+      : [];
 
   const orderIds = orders.map((o) => o.id);
 
-  /* Items sold (active = not cancelled). */
-  const items = orderIds.length > 0
-    ? await sb<OrderItem[]>(
-        `order_items?select=order_id,menu_item_id,menu_item_name,quantity,price_cents,status&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})`
-      )
-    : [];
+  const items =
+    orderIds.length > 0
+      ? await sb<OrderItem[]>(
+          `order_items?select=order_id,menu_item_id,menu_item_name,quantity,price_cents,status&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})${tc}`
+        )
+      : [];
 
-  /* Payments — for true split-aware method ventilation. */
-  const payments = orderIds.length > 0
-    ? await sb<OrderPayment[]>(
-        `order_payments?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})`
-      )
-    : [];
+  const payments =
+    orderIds.length > 0
+      ? await sb<OrderPayment[]>(
+          `order_payments?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})${tc}`
+        )
+      : [];
 
-  /* Staff names. */
-  const staffIds = [...new Set(orders.map((o) => o.staff_id).filter(Boolean))] as string[];
+  const staffIds = [
+    ...new Set(orders.map((o) => o.staff_id).filter(Boolean)),
+  ] as string[];
   const staffMap = new Map<string, string>();
   if (staffIds.length > 0) {
     const staff = await sb<StaffMember[]>(
-      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})${tc}`
     );
     for (const s of staff) staffMap.set(s.id, s.name);
   }
 
-  /* Cash sessions opened that day. */
-  const cashSessions = await listCashSessions(isoDate);
+  const cashSessions = await listCashSessions(isoDate, tid);
 
   /* ── Totals ─────────────────────────────── */
   const orders_count = orders.length;
@@ -819,7 +917,6 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
   const revenue_ht_cents = revenue_ttc_cents - tax_cents;
   const tip_cents = orders.reduce((s, o) => s + (o.tip_cents || 0), 0);
 
-  /* ── By method (use payments if any, else fallback to order.payment_method) ── */
   const methodMap = new Map<string, { amount_cents: number; count: number }>();
   if (payments.length > 0) {
     for (const p of payments) {
@@ -831,7 +928,10 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
   } else {
     for (const o of orders) {
       if (!o.payment_method) continue;
-      const cur = methodMap.get(o.payment_method) ?? { amount_cents: 0, count: 0 };
+      const cur = methodMap.get(o.payment_method) ?? {
+        amount_cents: 0,
+        count: 0,
+      };
       cur.amount_cents += o.total_cents + (o.tip_cents || 0);
       cur.count += 1;
       methodMap.set(o.payment_method, cur);
@@ -842,7 +942,6 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
     ...v,
   }));
 
-  /* ── By staff ─────────────────────────── */
   const staffStats = new Map<
     string,
     { orders_count: number; revenue_cents: number; tip_cents: number }
@@ -867,7 +966,6 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
     }))
     .sort((a, b) => b.revenue_cents - a.revenue_cents);
 
-  /* ── Top items ─────────────────────────── */
   const itemStats = new Map<
     string,
     { menu_item_name: string; quantity: number; revenue_cents: number }
@@ -888,8 +986,10 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 10);
 
-  /* ── By hour ─────────────────────────── */
-  const hourStats = new Map<number, { orders: number; revenue_cents: number }>();
+  const hourStats = new Map<
+    number,
+    { orders: number; revenue_cents: number }
+  >();
   for (const o of orders) {
     if (!o.paid_at) continue;
     const h = new Date(o.paid_at).getHours();
@@ -942,22 +1042,28 @@ export async function getZReport(isoDate: string): Promise<ZReport> {
 
 /** All orders paid on the given day (00:00 → next day 00:00, local TZ). */
 export async function listPaidOrdersForDay(
-  isoDate: string
+  isoDate: string,
+  tenantId?: string
 ): Promise<PaidOrderHistoryEntry[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
+
   const start = new Date(`${isoDate}T00:00:00`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   const startISO = start.toISOString();
   const endISO = end.toISOString();
 
   const orders = await sb<Order[]>(
-    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}&order=paid_at.desc`
+    `orders?select=*&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}${tc}&order=paid_at.desc`
   );
   if (orders.length === 0) return [];
 
   const ids = orders.map((o) => o.id);
-  const items = await sb<Pick<OrderItem, "order_id" | "quantity" | "status">[]>(
-    `order_items?select=order_id,quantity,status&order_id=in.(${ids.map((i) => `"${i}"`).join(",")})`
+  const items = await sb<
+    Pick<OrderItem, "order_id" | "quantity" | "status">[]
+  >(
+    `order_items?select=order_id,quantity,status&order_id=in.(${ids.map((i) => `"${i}"`).join(",")})${tc}`
   );
   const itemsCountByOrder = new Map<string, number>();
   for (const it of items) {
@@ -974,7 +1080,7 @@ export async function listPaidOrdersForDay(
   const staffMap = new Map<string, string>();
   if (staffIds.length > 0) {
     const staff = await sb<StaffMember[]>(
-      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})${tc}`
     );
     for (const s of staff) staffMap.set(s.id, s.name);
   }
@@ -1001,10 +1107,10 @@ export async function listPaidOrdersForDay(
   });
 }
 
-async function recomputeOrderTotals(orderId: string) {
+async function recomputeOrderTotals(orderId: string, tenantId: string) {
   if (!USE_SUPABASE) return;
   const items = await sb<OrderItem[]>(
-    `order_items?select=price_cents,quantity,status&order_id=eq.${orderId}`
+    `order_items?select=price_cents,quantity,status&order_id=eq.${orderId}${tenantClause(tenantId)}`
   );
   const subtotal = items
     .filter((i) => i.status !== "cancelled")
@@ -1012,7 +1118,7 @@ async function recomputeOrderTotals(orderId: string) {
   /* TVA française restauration : 10% (boissons alcoolisées 20% — simplifié ici) */
   const tax = Math.round(subtotal * 0.1);
   const total = subtotal + tax;
-  await sb(`orders?id=eq.${orderId}`, {
+  await sb(`orders?id=eq.${orderId}${tenantClause(tenantId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       subtotal_cents: subtotal,
@@ -1023,23 +1129,19 @@ async function recomputeOrderTotals(orderId: string) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   KDS — Kitchen tickets
+   KDS — Kitchen tickets (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * List all active kitchen tickets. When `filter.station` is set, items are
- * filtered server-side to the given station AND only tickets that have at
- * least one item for that station are returned. This is the core guardrail
- * that prevents a pizzaiolo from ever seeing / touching a grill item.
- */
 export async function getKitchenTickets(
-  filter: { station?: Station } = {}
+  filter: { station?: Station } = {},
+  tenantId?: string
 ): Promise<KitchenTicket[]> {
   if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
 
-  /* All orders currently being prepared */
   const orders = await sb<Order[]>(
-    `orders?select=*&status=in.(fired,ready)&order=fired_at.asc`
+    `orders?select=*&status=in.(fired,ready)${tc}&order=fired_at.asc`
   );
   if (orders.length === 0) return [];
 
@@ -1048,14 +1150,16 @@ export async function getKitchenTickets(
     ? `&station=eq.${encodeURIComponent(filter.station)}`
     : "";
   const items = await sb<OrderItem[]>(
-    `order_items?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)${stationClause}&order=created_at.asc`
+    `order_items?select=*&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)${stationClause}${tc}&order=created_at.asc`
   );
 
-  const staffIds = [...new Set(orders.map((o) => o.staff_id).filter(Boolean))] as string[];
+  const staffIds = [
+    ...new Set(orders.map((o) => o.staff_id).filter(Boolean)),
+  ] as string[];
   const staffMap = new Map<string, string>();
   if (staffIds.length > 0) {
     const staff = await sb<StaffMember[]>(
-      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})`
+      `staff_members?select=id,name&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})${tc}`
     );
     for (const s of staff) staffMap.set(s.id, s.name);
   }
@@ -1085,26 +1189,21 @@ export async function getKitchenTickets(
     });
 }
 
-/**
- * Fetch a single order_item (station guard helper for the PATCH route).
- * Returns null if not found.
- */
-export async function getOrderItem(itemId: string): Promise<OrderItem | null> {
+export async function getOrderItem(
+  itemId: string,
+  tenantId?: string
+): Promise<OrderItem | null> {
   if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
   const [row] = await sb<OrderItem[]>(
-    `order_items?select=*&id=eq.${itemId}&limit=1`
+    `order_items?select=*&id=eq.${itemId}${tenantClause(tid)}&limit=1`
   );
   return row ?? null;
 }
 
-/**
- * Aggregated ticket counts per station — powers the station picker home page.
- * An "active ticket for station X" = an order in fired/ready with at least
- * one item in cooking/ready whose station === X.
- */
-export async function getTicketCountsByStation(): Promise<
-  Record<Station, number>
-> {
+export async function getTicketCountsByStation(
+  tenantId?: string
+): Promise<Record<Station, number>> {
   const empty: Record<Station, number> = {
     main: 0,
     pizza: 0,
@@ -1114,18 +1213,19 @@ export async function getTicketCountsByStation(): Promise<
     bar: 0,
   };
   if (!USE_SUPABASE) return empty;
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
 
   const orders = await sb<Order[]>(
-    `orders?select=id&status=in.(fired,ready)`
+    `orders?select=id&status=in.(fired,ready)${tc}`
   );
   if (orders.length === 0) return empty;
 
   const orderIds = orders.map((o) => o.id);
   const items = await sb<Pick<OrderItem, "order_id" | "station">[]>(
-    `order_items?select=order_id,station&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)`
+    `order_items?select=order_id,station&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})&status=in.(cooking,ready)${tc}`
   );
 
-  /* Count DISTINCT order_id per station (one ticket = one card). */
   const seen = new Map<Station, Set<string>>();
   for (const it of items) {
     if (!seen.has(it.station)) seen.set(it.station, new Set());
@@ -1138,38 +1238,59 @@ export async function getTicketCountsByStation(): Promise<
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SERVICE STATS — Stats live pour admin/serveur
+   SERVICE STATS — Stats live (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
-export async function getServiceStats(): Promise<ServiceStats> {
+export async function getServiceStats(
+  tenantId?: string
+): Promise<ServiceStats> {
   if (!USE_SUPABASE) {
     return {
-      day: { orders_count: 0, guests_count: 0, revenue_cents: 0, avg_ticket_cents: 0, open_tables: 0 },
-      current: { active_orders: 0, items_cooking: 0, items_ready: 0, oldest_cooking_minutes: 0 },
+      day: {
+        orders_count: 0,
+        guests_count: 0,
+        revenue_cents: 0,
+        avg_ticket_cents: 0,
+        open_tables: 0,
+      },
+      current: {
+        active_orders: 0,
+        items_cooking: 0,
+        items_ready: 0,
+        oldest_cooking_minutes: 0,
+      },
       top_items: [],
     };
   }
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayISO = today.toISOString();
 
-  /* Day orders (paid only for revenue) */
   const [paidToday, allTodayOrders, activeOrders] = await Promise.all([
-    sb<Order[]>(`orders?select=total_cents,guest_count&status=eq.paid&paid_at=gte.${todayISO}`),
-    sb<Order[]>(`orders?select=guest_count&created_at=gte.${todayISO}&status=neq.cancelled`),
-    sb<Order[]>(`orders?select=id,table_number&status=in.(open,fired,ready,served)`),
+    sb<Order[]>(
+      `orders?select=total_cents,guest_count&status=eq.paid&paid_at=gte.${todayISO}${tc}`
+    ),
+    sb<Order[]>(
+      `orders?select=guest_count&created_at=gte.${todayISO}&status=neq.cancelled${tc}`
+    ),
+    sb<Order[]>(
+      `orders?select=id,table_number&status=in.(open,fired,ready,served)${tc}`
+    ),
   ]);
 
   const revenueCents = paidToday.reduce((s, o) => s + o.total_cents, 0);
   const guestsCount = allTodayOrders.reduce((s, o) => s + o.guest_count, 0);
   const openTables = new Set(
-    activeOrders.map((o) => o.table_number).filter((n): n is number => n != null)
+    activeOrders
+      .map((o) => o.table_number)
+      .filter((n): n is number => n != null)
   ).size;
 
-  /* Cooking items right now */
   const cookingItems = await sb<OrderItem[]>(
-    `order_items?select=status,fired_at&status=in.(cooking,ready)`
+    `order_items?select=status,fired_at&status=in.(cooking,ready)${tc}`
   );
   const cooking = cookingItems.filter((i) => i.status === "cooking");
   const ready = cookingItems.filter((i) => i.status === "ready");
@@ -1179,17 +1300,21 @@ export async function getServiceStats(): Promise<ServiceStats> {
       ? 0
       : Math.max(
           ...cooking.map((i) =>
-            i.fired_at ? Math.floor((now - new Date(i.fired_at).getTime()) / 60000) : 0
+            i.fired_at
+              ? Math.floor((now - new Date(i.fired_at).getTime()) / 60000)
+              : 0
           )
         );
 
-  /* Top items today */
   const itemsToday = await sb<OrderItem[]>(
-    `order_items?select=menu_item_name,quantity,price_cents&created_at=gte.${todayISO}&status=neq.cancelled&limit=500`
+    `order_items?select=menu_item_name,quantity,price_cents&created_at=gte.${todayISO}&status=neq.cancelled${tc}&limit=500`
   );
   const tally = new Map<string, { quantity: number; revenue_cents: number }>();
   for (const i of itemsToday) {
-    const row = tally.get(i.menu_item_name) || { quantity: 0, revenue_cents: 0 };
+    const row = tally.get(i.menu_item_name) || {
+      quantity: 0,
+      revenue_cents: 0,
+    };
     row.quantity += i.quantity;
     row.revenue_cents += i.quantity * i.price_cents;
     tally.set(i.menu_item_name, row);
@@ -1205,7 +1330,9 @@ export async function getServiceStats(): Promise<ServiceStats> {
       guests_count: guestsCount,
       revenue_cents: revenueCents,
       avg_ticket_cents:
-        paidToday.length > 0 ? Math.round(revenueCents / paidToday.length) : 0,
+        paidToday.length > 0
+          ? Math.round(revenueCents / paidToday.length)
+          : 0,
       open_tables: openTables,
     },
     current: {
@@ -1223,9 +1350,7 @@ export function isPosConfigured() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Lightweight stats for the admin "system status" card.
-   These are cheap queries that surface POS activity on the
-   global admin /parametres overview page.
+   POS Overview Stats (admin /parametres) — tenant-scoped
    ═══════════════════════════════════════════════════════════ */
 
 export interface PosOverviewStats {
@@ -1234,7 +1359,9 @@ export interface PosOverviewStats {
   active_orders: number;
 }
 
-export async function getPosOverviewStats(): Promise<PosOverviewStats> {
+export async function getPosOverviewStats(
+  tenantId?: string
+): Promise<PosOverviewStats> {
   if (!USE_SUPABASE) {
     return {
       total_orders_today: 0,
@@ -1242,19 +1369,22 @@ export async function getPosOverviewStats(): Promise<PosOverviewStats> {
       active_orders: 0,
     };
   }
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayISO = today.toISOString();
 
   const [ordersToday, paidToday, activeOrders] = await Promise.all([
     sb<Order[]>(
-      `orders?select=id&created_at=gte.${todayISO}&status=neq.cancelled`
+      `orders?select=id&created_at=gte.${todayISO}&status=neq.cancelled${tc}`
     ),
     sb<Order[]>(
-      `orders?select=total_cents&status=eq.paid&paid_at=gte.${todayISO}`
+      `orders?select=total_cents&status=eq.paid&paid_at=gte.${todayISO}${tc}`
     ),
     sb<Order[]>(
-      `orders?select=id&status=in.(open,fired,ready,served)`
+      `orders?select=id&status=in.(open,fired,ready,served)${tc}`
     ),
   ]);
 

@@ -1,6 +1,9 @@
 /**
- * LOYALTY CLIENT — Fonctions DB pour le programme de fidélité
- * Fonctionne en mode Supabase (prod) ou Memory (démo)
+ * LOYALTY CLIENT — Programme de fidélité scoped par tenant.
+ *
+ * Sprint 7b Phase F : toutes les fonctions filtrent automatiquement par
+ * `restaurant_id` du tenant courant. Cards, customers, config et
+ * transactions sont isolés par tenant.
  */
 
 import type {
@@ -11,6 +14,7 @@ import type {
   LoyaltyStats,
   EnrollLoyaltyPayload,
 } from "./loyalty-types";
+import { getCurrentTenantId } from "./tenant";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -34,6 +38,10 @@ async function sb<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(`Supabase error ${res.status}: ${text}`);
   }
   return res.json() as Promise<T>;
+}
+
+async function resolveTenantId(explicit?: string): Promise<string> {
+  return explicit ?? (await getCurrentTenantId());
 }
 
 /* ── Memory store fallback ─────────────────────────────── */
@@ -77,27 +85,32 @@ export function generateCardNumber(): string {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ENROLL — Création ou récupération d'une carte
+   ENROLL — Création ou récupération d'une carte (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export async function enrollCustomer(
-  payload: EnrollLoyaltyPayload
+  payload: EnrollLoyaltyPayload,
+  tenantId?: string
 ): Promise<LoyaltyCard> {
   if (!USE_SUPABASE) return enrollMemory(payload);
 
-  /* 1. Find or create customer */
+  const restaurantId = await resolveTenantId(tenantId);
+  const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
+  /* 1. Find or create customer (par tenant — un même email peut exister
+   * dans plusieurs tenants sans collision) */
   let customerId: string | null = null;
 
   if (payload.customer_email) {
     const found = await sb<Array<{ id: string }>>(
-      `customers?select=id&email=eq.${encodeURIComponent(payload.customer_email)}&limit=1`
+      `customers?select=id&email=eq.${encodeURIComponent(payload.customer_email)}${tenantFilter}&limit=1`
     );
     if (found.length > 0) customerId = found[0].id;
   }
   if (!customerId && payload.customer_phone) {
     const normalizedPhone = payload.customer_phone.replace(/\s/g, "");
     const found = await sb<Array<{ id: string }>>(
-      `customers?select=id&phone=eq.${encodeURIComponent(normalizedPhone)}&limit=1`
+      `customers?select=id&phone=eq.${encodeURIComponent(normalizedPhone)}${tenantFilter}&limit=1`
     );
     if (found.length > 0) customerId = found[0].id;
   }
@@ -109,22 +122,23 @@ export async function enrollCustomer(
         name: payload.customer_name,
         email: payload.customer_email || null,
         phone: payload.customer_phone?.replace(/\s/g, "") || null,
+        restaurant_id: restaurantId,
       }),
     });
     customerId = created.id;
   }
 
-  /* 2. Check if this customer already has a card */
+  /* 2. Check if this customer already has a card (dans CE tenant) */
   const existingCards = await sb<LoyaltyCard[]>(
-    `loyalty_cards?select=*&customer_id=eq.${customerId}&limit=1`
+    `loyalty_cards?select=*&customer_id=eq.${customerId}${tenantFilter}&limit=1`
   );
   if (existingCards.length > 0) return existingCards[0];
 
-  /* 3. Generate unique card number (retry a few times if collision) */
+  /* 3. Generate unique card number (retry a few times if collision dans CE tenant) */
   let cardNumber = generateCardNumber();
   for (let i = 0; i < 5; i++) {
     const collision = await sb<Array<{ id: string }>>(
-      `loyalty_cards?select=id&card_number=eq.${encodeURIComponent(cardNumber)}&limit=1`
+      `loyalty_cards?select=id&card_number=eq.${encodeURIComponent(cardNumber)}${tenantFilter}&limit=1`
     );
     if (collision.length === 0) break;
     cardNumber = generateCardNumber();
@@ -138,6 +152,7 @@ export async function enrollCustomer(
       card_number: cardNumber,
       current_stamps: 0,
       total_stamps_earned: 0,
+      restaurant_id: restaurantId,
     }),
   });
 
@@ -149,6 +164,7 @@ export async function enrollCustomer(
       type: "enrollment",
       amount: 0,
       note: "Inscription au programme fidélité",
+      restaurant_id: restaurantId,
     }),
   });
 
@@ -171,16 +187,19 @@ function enrollMemory(payload: EnrollLoyaltyPayload): LoyaltyCard {
     created_at: now,
     updated_at: now,
   };
+  /* On utilise le payload pour rester cohérent avec l'API même si memory store ne scope pas par champ */
+  void payload;
   store.cards.set(id, card);
   return card;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   GET CARD — Lecture publique par card_number
+   GET CARD — Lecture publique par card_number (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export async function getCardByNumber(
-  cardNumber: string
+  cardNumber: string,
+  tenantId?: string
 ): Promise<LoyaltyCardFull | null> {
   if (!USE_SUPABASE) {
     const store = getMemStore();
@@ -190,20 +209,25 @@ export async function getCardByNumber(
     return card ? { ...card, customer_name: "Client Démo" } : null;
   }
 
+  const restaurantId = await resolveTenantId(tenantId);
+  const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
   const cards = await sb<LoyaltyCard[]>(
-    `loyalty_cards?select=*&card_number=eq.${encodeURIComponent(cardNumber)}&limit=1`
+    `loyalty_cards?select=*&card_number=eq.${encodeURIComponent(cardNumber)}${tenantFilter}&limit=1`
   );
   if (cards.length === 0) return null;
   const card = cards[0];
 
-  /* Fetch customer */
+  /* Fetch customer (filtré par tenant aussi) */
   const customers = await sb<
     Array<{ name: string; email: string | null; phone: string | null }>
-  >(`customers?select=name,email,phone&id=eq.${card.customer_id}&limit=1`);
+  >(
+    `customers?select=name,email,phone&id=eq.${card.customer_id}${tenantFilter}&limit=1`
+  );
 
   /* Fetch recent transactions */
   const transactions = await sb<LoyaltyTransaction[]>(
-    `loyalty_transactions?select=*&card_id=eq.${card.id}&order=created_at.desc&limit=20`
+    `loyalty_transactions?select=*&card_id=eq.${card.id}${tenantFilter}&order=created_at.desc&limit=20`
   );
 
   return {
@@ -216,19 +240,21 @@ export async function getCardByNumber(
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ADD STAMP — Staff scan QR → +1 tampon
+   ADD STAMP — Staff scan QR → +1 tampon (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
 export async function addStamp(
   cardNumber: string,
-  staffMember?: string
+  staffMember?: string,
+  tenantId?: string
 ): Promise<{
   card: LoyaltyCard;
   rewardEarned: boolean;
   stampsAdded: number;
   stampsRequired: number;
 }> {
-  const config = await getConfig();
+  const restaurantId = await resolveTenantId(tenantId);
+  const config = await getConfig(restaurantId);
 
   if (!USE_SUPABASE) {
     const store = getMemStore();
@@ -252,8 +278,10 @@ export async function addStamp(
     };
   }
 
+  const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
   const cards = await sb<LoyaltyCard[]>(
-    `loyalty_cards?select=*&card_number=eq.${encodeURIComponent(cardNumber)}&limit=1`
+    `loyalty_cards?select=*&card_number=eq.${encodeURIComponent(cardNumber)}${tenantFilter}&limit=1`
   );
   if (cards.length === 0) throw new Error("Card not found");
   const card = cards[0];
@@ -274,7 +302,7 @@ export async function addStamp(
       };
 
   const [updated] = await sb<LoyaltyCard[]>(
-    `loyalty_cards?id=eq.${card.id}`,
+    `loyalty_cards?id=eq.${card.id}${tenantFilter}`,
     {
       method: "PATCH",
       body: JSON.stringify(updates),
@@ -291,6 +319,7 @@ export async function addStamp(
       amount: 1,
       note: null,
       staff_member: staffMember || "staff",
+      restaurant_id: restaurantId,
     }),
   });
   if (rewardEarned) {
@@ -302,6 +331,7 @@ export async function addStamp(
         amount: config.stamps_required,
         note: config.reward_label,
         staff_member: staffMember || "staff",
+        restaurant_id: restaurantId,
       }),
     });
   }
@@ -315,18 +345,23 @@ export async function addStamp(
 }
 
 /* ═══════════════════════════════════════════════════════════
-   CONFIG
+   CONFIG (par tenant — UPSERT pattern)
    ═══════════════════════════════════════════════════════════ */
 
-export async function getConfig(): Promise<LoyaltyConfig> {
+export async function getConfig(tenantId?: string): Promise<LoyaltyConfig> {
   if (!USE_SUPABASE) return getMemStore().config;
-  const rows = await sb<LoyaltyConfig[]>(`loyalty_config?select=*&id=eq.1&limit=1`);
+  const restaurantId = await resolveTenantId(tenantId);
+
+  const rows = await sb<LoyaltyConfig[]>(
+    `loyalty_config?select=*&restaurant_id=eq.${encodeURIComponent(restaurantId)}&limit=1`
+  );
   if (rows.length === 0) {
-    /* Shouldn't happen — SQL inserts default row. Fallback: */
+    /* Pas de config pour ce tenant : on retourne un default sans la créer.
+     * Elle sera auto-créée à la 1ère écriture via updateConfig. */
     return {
       id: 1,
       stamps_required: 5,
-      reward_label: "Une pizza offerte",
+      reward_label: "Une boisson offerte",
       reward_description: "",
       welcome_message: "Bienvenue !",
       brand_color: "#2C1810",
@@ -339,39 +374,79 @@ export async function getConfig(): Promise<LoyaltyConfig> {
 }
 
 export async function updateConfig(
-  updates: Partial<LoyaltyConfig>
+  updates: Partial<LoyaltyConfig>,
+  tenantId?: string
 ): Promise<LoyaltyConfig> {
   if (!USE_SUPABASE) {
     const store = getMemStore();
-    store.config = { ...store.config, ...updates, updated_at: new Date().toISOString() };
+    store.config = {
+      ...store.config,
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
     return store.config;
   }
-  const [row] = await sb<LoyaltyConfig[]>(`loyalty_config?id=eq.1`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
+
+  const restaurantId = await resolveTenantId(tenantId);
+
+  /* Try UPDATE first */
+  const updated = await sb<LoyaltyConfig[]>(
+    `loyalty_config?restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    }
+  );
+  if (updated.length > 0) return updated[0];
+
+  /* Fallback INSERT */
+  const seed = {
+    stamps_required: 5,
+    reward_label: "Une boisson offerte",
+    reward_description: "",
+    welcome_message: "Bienvenue !",
+    brand_color: "#2C1810",
+    accent_color: "#B8922F",
+    active: true,
+    ...updates,
+    restaurant_id: restaurantId,
+  };
+  const [inserted] = await sb<LoyaltyConfig[]>(`loyalty_config`, {
+    method: "POST",
+    body: JSON.stringify(seed),
   });
-  return row;
+  return inserted;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   LIST / STATS
+   LIST / STATS (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 
-export async function listAllCards(): Promise<LoyaltyCardFull[]> {
+export async function listAllCards(
+  tenantId?: string
+): Promise<LoyaltyCardFull[]> {
   if (!USE_SUPABASE) {
     return [...getMemStore().cards.values()].map((c) => ({ ...c }));
   }
 
+  const restaurantId = await resolveTenantId(tenantId);
+  const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
   const cards = await sb<LoyaltyCard[]>(
-    `loyalty_cards?select=*&order=last_stamp_at.desc.nullslast,enrolled_at.desc`
+    `loyalty_cards?select=*${tenantFilter}&order=last_stamp_at.desc.nullslast,enrolled_at.desc`
   );
   if (cards.length === 0) return [];
 
   const customerIds = [...new Set(cards.map((c) => c.customer_id))];
   const customers = await sb<
-    Array<{ id: string; name: string; email: string | null; phone: string | null }>
+    Array<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+    }>
   >(
-    `customers?select=id,name,email,phone&id=in.(${customerIds.map((id) => `"${id}"`).join(",")})`
+    `customers?select=id,name,email,phone&id=in.(${customerIds.map((id) => `"${id}"`).join(",")})${tenantFilter}`
   );
   const byId = new Map(customers.map((c) => [c.id, c]));
 
@@ -386,8 +461,8 @@ export async function listAllCards(): Promise<LoyaltyCardFull[]> {
   });
 }
 
-export async function getLoyaltyStats(): Promise<LoyaltyStats> {
-  const cards = await listAllCards();
+export async function getLoyaltyStats(tenantId?: string): Promise<LoyaltyStats> {
+  const cards = await listAllCards(tenantId);
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000);
 
   const activeCards = cards.filter(

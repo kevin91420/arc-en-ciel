@@ -1,11 +1,14 @@
 /**
- * MENU CLIENT — DB-backed catalogue (Sprint 5).
+ * MENU CLIENT — DB-backed catalogue, scoped par tenant (Sprint 7b Phase F).
  *
- * `getMenu()` returns the full menu (categories + items + variants +
- * modifiers). On a brand new tenant the menu_items table is empty — we
- * fall back to the static `CARTE` constant from `src/data/carte.ts` so the
- * site never looks broken. The first time an admin saves a change, we seed
- * the DB from that fallback so the override semantics are clean.
+ * Toutes les fonctions sont tenant-aware : elles résolvent automatiquement
+ * le `restaurant_id` du tenant courant via `getCurrentTenantId()` (lit le
+ * header X-Tenant-Slug injecté par le proxy). Un `tenantId` explicite peut
+ * être passé pour les contextes hors requête (seed scripts, etc.).
+ *
+ * `getMenu()` retourne le menu complet (catégories + items + variants +
+ * modifiers) du tenant. Si le tenant n'a aucun item en DB, on tombe sur la
+ * `CARTE` statique pour ne pas afficher de page vide pendant l'onboarding.
  */
 
 import { CARTE, type DietaryTag, type MenuCategory } from "@/data/carte";
@@ -26,6 +29,7 @@ import type {
   UpdateMenuCategoryPayload,
   UpdateMenuItemPayload,
 } from "./menu-types";
+import { getCurrentTenantId } from "./tenant";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -48,6 +52,14 @@ async function sb<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(`Supabase ${res.status}: ${text}`);
   }
   return res.json() as Promise<T>;
+}
+
+/**
+ * Résout le tenant_id pour une fonction qui peut être appelée avec ou sans
+ * contexte de requête. Évite les `await getCurrentTenantId()` répétitifs.
+ */
+async function resolveTenantId(explicit?: string): Promise<string> {
+  return explicit ?? (await getCurrentTenantId());
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -90,42 +102,45 @@ function fallbackFromCarte(): MenuCategoryFull[] {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Read — full menu (or fallback)
+   Read — full menu (or fallback) du tenant courant
    ═══════════════════════════════════════════════════════════ */
 
 /**
- * Public read of the catalogue. Returns the DB version if it has at least
- * one item, otherwise falls back to the static CARTE so QR menus / POS keep
- * working on a brand-new tenant.
+ * Public read of the catalogue (par tenant). Returns the DB version if it
+ * has at least one category, otherwise falls back to the static CARTE so
+ * QR menus / POS keep working on a brand-new tenant.
  *
  * `includeInactive` — admin uses true to render hidden items in the editor.
  */
 export async function getMenu(
-  options: { includeInactive?: boolean } = {}
+  options: { includeInactive?: boolean; tenantId?: string } = {}
 ): Promise<MenuCategoryFull[]> {
   const includeInactive = options.includeInactive ?? false;
-
   if (!USE_SUPABASE) return fallbackFromCarte();
 
   try {
+    const restaurantId = await resolveTenantId(options.tenantId);
+    const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
     const [categories, items, variants, modifiers] = await Promise.all([
       sb<MenuCategoryRow[]>(
-        `menu_categories?select=*${includeInactive ? "" : "&active=eq.true"}&order=position.asc`
+        `menu_categories?select=*${includeInactive ? "" : "&active=eq.true"}${tenantFilter}&order=position.asc`
       ),
       sb<MenuItemRow[]>(
-        `menu_items?select=*${includeInactive ? "" : "&active=eq.true"}&order=position.asc`
+        `menu_items?select=*${includeInactive ? "" : "&active=eq.true"}${tenantFilter}&order=position.asc`
       ),
       sb<MenuVariantRow[]>(
-        `menu_variants?select=*&order=position.asc`
+        `menu_variants?select=*${tenantFilter}&order=position.asc`
       ),
       sb<MenuModifierRow[]>(
-        `menu_modifiers?select=*&order=position.asc`
+        `menu_modifiers?select=*${tenantFilter}&order=position.asc`
       ),
     ]);
 
     if (categories.length === 0) {
-      /* Empty DB — return fallback so the customer-facing pages don't go
-       * blank during onboarding. The admin will seed manually. */
+      /* Empty DB pour ce tenant — return fallback so the customer-facing
+       * pages don't go blank during onboarding. The admin will seed
+       * manually (ou l'onboarding wizard pre-remplit). */
       return fallbackFromCarte();
     }
 
@@ -168,14 +183,15 @@ export async function getMenu(
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Seed — copy fallback into DB on first edit
+   Seed — copy fallback into DB on first edit (par tenant)
    ═══════════════════════════════════════════════════════════ */
 
-export async function isMenuSeeded(): Promise<boolean> {
+export async function isMenuSeeded(tenantId?: string): Promise<boolean> {
   if (!USE_SUPABASE) return false;
   try {
+    const restaurantId = await resolveTenantId(tenantId);
     const rows = await sb<{ count: number }[]>(
-      `menu_categories?select=count`,
+      `menu_categories?select=count&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
       { headers: { Prefer: "count=exact" } }
     );
     return Array.isArray(rows) && rows.length > 0 && (rows[0].count ?? 0) > 0;
@@ -184,11 +200,12 @@ export async function isMenuSeeded(): Promise<boolean> {
   }
 }
 
-/** Seeds the DB from the static CARTE once. Idempotent : returns silently
- * when at least one row already exists. */
-export async function seedMenuFromCarte(): Promise<void> {
+/** Seeds the DB from the static CARTE once pour le tenant courant.
+ * Idempotent : returns silently when at least one row already exists. */
+export async function seedMenuFromCarte(tenantId?: string): Promise<void> {
   if (!USE_SUPABASE) return;
-  if (await isMenuSeeded()) return;
+  const restaurantId = await resolveTenantId(tenantId);
+  if (await isMenuSeeded(restaurantId)) return;
 
   const fallback = fallbackFromCarte();
   /* Insert categories first. */
@@ -202,6 +219,7 @@ export async function seedMenuFromCarte(): Promise<void> {
     station: c.station,
     position: i,
     active: true,
+    restaurant_id: restaurantId,
   }));
   await sb(`menu_categories`, {
     method: "POST",
@@ -222,6 +240,7 @@ export async function seedMenuFromCarte(): Promise<void> {
       tags: it.tags,
       position: i,
       active: true,
+      restaurant_id: restaurantId,
     }))
   );
   if (itemRows.length > 0) {
@@ -233,30 +252,34 @@ export async function seedMenuFromCarte(): Promise<void> {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Mutations — admin CRUD
+   Mutations — admin CRUD (tenant-aware)
    ═══════════════════════════════════════════════════════════ */
 
 export async function upsertCategory(
-  payload: CreateMenuCategoryPayload
+  payload: CreateMenuCategoryPayload,
+  tenantId?: string
 ): Promise<MenuCategoryRow> {
   if (!USE_SUPABASE) throw new Error("Supabase requis pour éditer la carte.");
-  await seedMenuFromCarte();
+  const restaurantId = await resolveTenantId(tenantId);
+  await seedMenuFromCarte(restaurantId);
   const [row] = await sb<MenuCategoryRow[]>(`menu_categories`, {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, restaurant_id: restaurantId }),
   });
   return row;
 }
 
 export async function updateCategory(
   id: string,
-  patch: UpdateMenuCategoryPayload
+  patch: UpdateMenuCategoryPayload,
+  tenantId?: string
 ): Promise<MenuCategoryRow | null> {
   if (!USE_SUPABASE) return null;
-  await seedMenuFromCarte();
+  const restaurantId = await resolveTenantId(tenantId);
+  await seedMenuFromCarte(restaurantId);
   const [row] = await sb<MenuCategoryRow[]>(
-    `menu_categories?id=eq.${encodeURIComponent(id)}`,
+    `menu_categories?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
     {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -265,34 +288,43 @@ export async function updateCategory(
   return row ?? null;
 }
 
-export async function deleteCategory(id: string): Promise<void> {
+export async function deleteCategory(
+  id: string,
+  tenantId?: string
+): Promise<void> {
   if (!USE_SUPABASE) return;
-  await sb(`menu_categories?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+  const restaurantId = await resolveTenantId(tenantId);
+  await sb(
+    `menu_categories?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function upsertItem(
-  payload: CreateMenuItemPayload
+  payload: CreateMenuItemPayload,
+  tenantId?: string
 ): Promise<MenuItemRow> {
   if (!USE_SUPABASE) throw new Error("Supabase requis pour éditer la carte.");
-  await seedMenuFromCarte();
+  const restaurantId = await resolveTenantId(tenantId);
+  await seedMenuFromCarte(restaurantId);
   const [row] = await sb<MenuItemRow[]>(`menu_items`, {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, restaurant_id: restaurantId }),
   });
   return row;
 }
 
 export async function updateItem(
   id: string,
-  patch: UpdateMenuItemPayload
+  patch: UpdateMenuItemPayload,
+  tenantId?: string
 ): Promise<MenuItemRow | null> {
   if (!USE_SUPABASE) return null;
-  await seedMenuFromCarte();
+  const restaurantId = await resolveTenantId(tenantId);
+  await seedMenuFromCarte(restaurantId);
   const [row] = await sb<MenuItemRow[]>(
-    `menu_items?id=eq.${encodeURIComponent(id)}`,
+    `menu_items?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
     {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -301,21 +333,28 @@ export async function updateItem(
   return row ?? null;
 }
 
-export async function deleteItem(id: string): Promise<void> {
+export async function deleteItem(
+  id: string,
+  tenantId?: string
+): Promise<void> {
   if (!USE_SUPABASE) return;
-  await sb(`menu_items?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+  const restaurantId = await resolveTenantId(tenantId);
+  await sb(
+    `menu_items?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
+    { method: "DELETE" }
+  );
 }
 
-/* ── Variants & modifiers (lighter surface — admin can manage) ── */
+/* ── Variants & modifiers (tenant-aware) ── */
 
 export async function listVariantsForItem(
-  itemId: string
+  itemId: string,
+  tenantId?: string
 ): Promise<MenuVariantRow[]> {
   if (!USE_SUPABASE) return [];
+  const restaurantId = await resolveTenantId(tenantId);
   return sb<MenuVariantRow[]>(
-    `menu_variants?select=*&menu_item_id=eq.${encodeURIComponent(itemId)}&order=position.asc`
+    `menu_variants?select=*&menu_item_id=eq.${encodeURIComponent(itemId)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}&order=position.asc`
   );
 }
 
@@ -326,12 +365,15 @@ export async function setVariantsForItem(
     price_delta_cents: number;
     is_default?: boolean;
     position?: number;
-  }>
+  }>,
+  tenantId?: string
 ): Promise<MenuVariantRow[]> {
   if (!USE_SUPABASE) throw new Error("Supabase requis");
-  await sb(`menu_variants?menu_item_id=eq.${encodeURIComponent(itemId)}`, {
-    method: "DELETE",
-  });
+  const restaurantId = await resolveTenantId(tenantId);
+  await sb(
+    `menu_variants?menu_item_id=eq.${encodeURIComponent(itemId)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
+    { method: "DELETE" }
+  );
   if (variants.length === 0) return [];
   const rows = variants.map((v, i) => ({
     menu_item_id: itemId,
@@ -339,6 +381,7 @@ export async function setVariantsForItem(
     price_delta_cents: v.price_delta_cents,
     is_default: Boolean(v.is_default),
     position: v.position ?? i,
+    restaurant_id: restaurantId,
   }));
   return sb<MenuVariantRow[]>(`menu_variants`, {
     method: "POST",
@@ -347,11 +390,13 @@ export async function setVariantsForItem(
 }
 
 export async function listModifiersForItem(
-  itemId: string
+  itemId: string,
+  tenantId?: string
 ): Promise<MenuModifierRow[]> {
   if (!USE_SUPABASE) return [];
+  const restaurantId = await resolveTenantId(tenantId);
   return sb<MenuModifierRow[]>(
-    `menu_modifiers?select=*&menu_item_id=eq.${encodeURIComponent(itemId)}&order=position.asc`
+    `menu_modifiers?select=*&menu_item_id=eq.${encodeURIComponent(itemId)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}&order=position.asc`
   );
 }
 
@@ -362,11 +407,13 @@ export async function setModifiersForItem(
     price_delta_cents: number;
     is_required?: boolean;
     position?: number;
-  }>
+  }>,
+  tenantId?: string
 ): Promise<MenuModifierRow[]> {
   if (!USE_SUPABASE) throw new Error("Supabase requis");
+  const restaurantId = await resolveTenantId(tenantId);
   await sb(
-    `menu_modifiers?menu_item_id=eq.${encodeURIComponent(itemId)}`,
+    `menu_modifiers?menu_item_id=eq.${encodeURIComponent(itemId)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
     { method: "DELETE" }
   );
   if (modifiers.length === 0) return [];
@@ -377,6 +424,7 @@ export async function setModifiersForItem(
     price_delta_cents: m.price_delta_cents,
     is_required: Boolean(m.is_required),
     position: m.position ?? i,
+    restaurant_id: restaurantId,
   }));
   return sb<MenuModifierRow[]>(`menu_modifiers`, {
     method: "POST",
@@ -385,24 +433,30 @@ export async function setModifiersForItem(
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Combos / Formules (Sprint 6b)
+   Combos / Formules (Sprint 6b — tenant-aware)
    ═══════════════════════════════════════════════════════════ */
 
 export async function listCombos(
-  options: { cardId?: string; includeInactive?: boolean } = {}
+  options: {
+    cardId?: string;
+    includeInactive?: boolean;
+    tenantId?: string;
+  } = {}
 ): Promise<MenuComboFull[]> {
   if (!USE_SUPABASE) return [];
   try {
+    const restaurantId = await resolveTenantId(options.tenantId);
+    const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
     const cardClause = options.cardId
       ? `&card_id=eq.${encodeURIComponent(options.cardId)}`
       : "";
     const activeClause = options.includeInactive ? "" : "&active=eq.true";
     const [combos, slots] = await Promise.all([
       sb<MenuComboRow[]>(
-        `menu_combos?select=*${activeClause}${cardClause}&order=position.asc`
+        `menu_combos?select=*${activeClause}${cardClause}${tenantFilter}&order=position.asc`
       ),
       sb<MenuComboSlotRow[]>(
-        `menu_combo_slots?select=*&order=position.asc`
+        `menu_combo_slots?select=*${tenantFilter}&order=position.asc`
       ),
     ]);
     const slotsByCombo = new Map<string, MenuComboSlotRow[]>();
@@ -421,24 +475,28 @@ export async function listCombos(
 }
 
 export async function upsertCombo(
-  payload: Omit<MenuComboRow, "created_at" | "updated_at">
+  payload: Omit<MenuComboRow, "created_at" | "updated_at">,
+  tenantId?: string
 ): Promise<MenuComboRow> {
   if (!USE_SUPABASE) throw new Error("Supabase requis");
+  const restaurantId = await resolveTenantId(tenantId);
   const [row] = await sb<MenuComboRow[]>(`menu_combos`, {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, restaurant_id: restaurantId }),
   });
   return row;
 }
 
 export async function updateCombo(
   id: string,
-  patch: Partial<Omit<MenuComboRow, "id" | "created_at" | "updated_at">>
+  patch: Partial<Omit<MenuComboRow, "id" | "created_at" | "updated_at">>,
+  tenantId?: string
 ): Promise<MenuComboRow | null> {
   if (!USE_SUPABASE) return null;
+  const restaurantId = await resolveTenantId(tenantId);
   const [row] = await sb<MenuComboRow[]>(
-    `menu_combos?id=eq.${encodeURIComponent(id)}`,
+    `menu_combos?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
     {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -447,11 +505,16 @@ export async function updateCombo(
   return row ?? null;
 }
 
-export async function deleteCombo(id: string): Promise<void> {
+export async function deleteCombo(
+  id: string,
+  tenantId?: string
+): Promise<void> {
   if (!USE_SUPABASE) return;
-  await sb(`menu_combos?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+  const restaurantId = await resolveTenantId(tenantId);
+  await sb(
+    `menu_combos?id=eq.${encodeURIComponent(id)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function setComboSlots(
@@ -462,11 +525,13 @@ export async function setComboSlots(
     min_picks: number;
     max_picks: number;
     position?: number;
-  }>
+  }>,
+  tenantId?: string
 ): Promise<MenuComboSlotRow[]> {
   if (!USE_SUPABASE) throw new Error("Supabase requis");
+  const restaurantId = await resolveTenantId(tenantId);
   await sb(
-    `menu_combo_slots?combo_id=eq.${encodeURIComponent(comboId)}`,
+    `menu_combo_slots?combo_id=eq.${encodeURIComponent(comboId)}&restaurant_id=eq.${encodeURIComponent(restaurantId)}`,
     { method: "DELETE" }
   );
   if (slots.length === 0) return [];
@@ -477,6 +542,7 @@ export async function setComboSlots(
     min_picks: s.min_picks,
     max_picks: s.max_picks,
     position: s.position ?? i,
+    restaurant_id: restaurantId,
   }));
   return sb<MenuComboSlotRow[]>(`menu_combo_slots`, {
     method: "POST",
