@@ -848,7 +848,10 @@ export default function AdditionPage({ params }: PageProps) {
 
 /* ════════════════════════════════════════════════════════════
    PAYMENT METHOD MODAL — Espèces / CB / Ticket Resto / Autre
+   + rendu de monnaie quand espèces (Sprint 7b boulangerie feedback)
    ════════════════════════════════════════════════════════════ */
+const CASH_PRESETS_CENTS_SPLIT = [500, 1000, 2000, 5000, 10000];
+
 function PaymentMethodModal({
   amountCents,
   busy,
@@ -861,11 +864,79 @@ function PaymentMethodModal({
   onConfirm: (method: PaymentMethod, tipCents: number) => void;
 }) {
   const [tipPct, setTipPct] = useState<0 | 5 | 10 | 15>(0);
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(
+    null
+  );
+  const [cashReceivedCents, setCashReceivedCents] = useState<number>(0);
+  const [cashTextValue, setCashTextValue] = useState<string>("");
+
   const tipCents = useMemo(
     () => Math.round((amountCents * tipPct) / 100),
     [amountCents, tipPct]
   );
   const grand = amountCents + tipCents;
+
+  /* Quand on sélectionne espèces, pré-remplit avec le compte exact. */
+  useEffect(() => {
+    if (selectedMethod === "cash" && cashReceivedCents === 0) {
+      setCashReceivedCents(grand);
+      setCashTextValue((grand / 100).toFixed(2));
+    }
+    if (selectedMethod !== "cash") {
+      setCashReceivedCents(0);
+      setCashTextValue("");
+    }
+  }, [selectedMethod, grand, cashReceivedCents]);
+
+  /* Si grand change pendant qu'on est en cash et qu'on était au compte exact,
+   * on suit. Sinon on laisse l'utilisateur. */
+  useEffect(() => {
+    if (selectedMethod === "cash" && cashReceivedCents > 0) {
+      /* Aucune action — on laisse l'utilisateur libre */
+    }
+  }, [grand, selectedMethod, cashReceivedCents]);
+
+  const changeCents = cashReceivedCents - grand;
+  const cashMissing = selectedMethod === "cash" && changeCents < 0;
+
+  function pickMethod(m: PaymentMethod) {
+    /* Pour CB / ticket / autre on confirme direct (pas de monnaie à rendre).
+     * Pour espèces on attend que l'utilisateur saisisse le montant reçu. */
+    if (m === "cash") {
+      setSelectedMethod("cash");
+      return;
+    }
+    onConfirm(m, tipCents);
+  }
+
+  function validateCash() {
+    if (cashMissing || busy) return;
+    onConfirm("cash", tipCents);
+  }
+
+  function setCashPreset(cents: number) {
+    const value = cents < grand ? grand : cents;
+    setCashReceivedCents(value);
+    setCashTextValue((value / 100).toFixed(2));
+  }
+
+  function setCashExact() {
+    setCashReceivedCents(grand);
+    setCashTextValue((grand / 100).toFixed(2));
+  }
+
+  function onCashTextChange(v: string) {
+    const cleaned = v.replace(/[^0-9.,]/g, "").replace(",", ".");
+    setCashTextValue(v);
+    const num = parseFloat(cleaned);
+    if (!Number.isNaN(num) && num >= 0) {
+      setCashReceivedCents(Math.round(num * 100));
+    } else if (cleaned === "") {
+      setCashReceivedCents(0);
+    }
+  }
+
+  const visiblePresets = CASH_PRESETS_CENTS_SPLIT.filter((p) => p >= grand);
 
   return (
     <>
@@ -882,12 +953,13 @@ function PaymentMethodModal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.96 }}
         transition={{ type: "spring", damping: 25, stiffness: 280 }}
-        className="fixed inset-x-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-md sm:w-full z-50"
+        className="fixed inset-x-4 top-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-md sm:w-full sm:max-h-[92vh] z-50 flex"
         role="dialog"
         aria-modal
       >
-        <div className="bg-white-warm rounded-3xl shadow-2xl border border-terracotta/30 p-6">
-          <div className="text-center">
+        <div className="bg-white-warm rounded-3xl shadow-2xl border border-terracotta/30 w-full flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="text-center px-6 pt-6 pb-4 flex-shrink-0">
             <p className="text-[10px] uppercase tracking-[0.22em] text-brown-light font-bold">
               Encaissement
             </p>
@@ -901,61 +973,211 @@ function PaymentMethodModal({
             )}
           </div>
 
-          <div className="mt-5">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
-              Pourboire
-            </p>
-            <div className="flex items-center gap-1.5">
-              {([0, 5, 10, 15] as const).map((pct) => {
-                const active = tipPct === pct;
-                return (
-                  <button
-                    key={pct}
-                    type="button"
-                    onClick={() => setTipPct(pct)}
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-5">
+            {/* Tip */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                Pourboire
+              </p>
+              <div className="flex items-center gap-1.5">
+                {([0, 5, 10, 15] as const).map((pct) => {
+                  const active = tipPct === pct;
+                  return (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setTipPct(pct)}
+                      className={[
+                        "flex-1 h-10 rounded-lg text-xs font-bold transition border",
+                        active
+                          ? "bg-gold text-brown border-gold shadow"
+                          : "bg-cream text-brown-light border-terracotta/30 hover:border-terracotta/60",
+                      ].join(" ")}
+                    >
+                      {pct === 0 ? "Sans" : `+${pct}%`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Method */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                Méthode
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {PAYMENT_METHOD_OPTIONS.map((opt) => {
+                  const active = selectedMethod === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => pickMethod(opt.key)}
+                      disabled={busy}
+                      className={[
+                        "h-14 rounded-xl border-2 disabled:opacity-50 transition active:scale-95 flex items-center justify-center gap-2 font-semibold",
+                        active
+                          ? "bg-gold/15 border-gold text-brown"
+                          : "bg-cream border-terracotta/30 hover:border-gold hover:bg-gold/10 text-brown",
+                      ].join(" ")}
+                    >
+                      <span aria-hidden className="text-xl">
+                        {opt.icon}
+                      </span>
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Cash change */}
+            {selectedMethod === "cash" && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="overflow-hidden"
+              >
+                <div className="bg-gold/10 rounded-xl p-4 border border-gold/40 space-y-3">
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold">
+                      Espèces reçues
+                    </p>
+                    <button
+                      type="button"
+                      onClick={setCashExact}
+                      className="text-[11px] text-brown-light hover:text-brown font-semibold underline-offset-2 hover:underline"
+                    >
+                      Compte exact
+                    </button>
+                  </div>
+
+                  {visiblePresets.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {visiblePresets.map((cents) => {
+                        const active = cashReceivedCents === cents;
+                        return (
+                          <button
+                            key={cents}
+                            type="button"
+                            onClick={() => setCashPreset(cents)}
+                            className={[
+                              "h-10 px-3 rounded-lg text-sm font-bold tabular-nums border-2 transition active:scale-95",
+                              active
+                                ? "bg-brown text-cream border-brown"
+                                : "bg-white-warm border-terracotta/40 text-brown hover:border-gold",
+                            ].join(" ")}
+                          >
+                            {formatCents(cents)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="flex items-stretch">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={cashTextValue}
+                      onChange={(e) => onCashTextChange(e.target.value)}
+                      placeholder="0,00"
+                      className="flex-1 px-3 py-2 rounded-l-lg bg-white-warm border border-terracotta/40 text-brown text-base font-bold tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    <span className="inline-flex items-center px-3 rounded-r-lg bg-cream border border-l-0 border-terracotta/40 text-brown font-bold">
+                      €
+                    </span>
+                  </div>
+
+                  <div
                     className={[
-                      "flex-1 h-10 rounded-lg text-xs font-bold transition border",
-                      active
-                        ? "bg-gold text-brown border-gold shadow"
-                        : "bg-cream text-brown-light border-terracotta/30 hover:border-terracotta/60",
+                      "rounded-lg px-3 py-2.5 flex items-center justify-between transition-colors",
+                      cashMissing
+                        ? "bg-amber-50 border border-amber-300"
+                        : changeCents === 0
+                          ? "bg-cream border border-terracotta/30"
+                          : "bg-green-50 border border-green-300",
                     ].join(" ")}
                   >
-                    {pct === 0 ? "Sans" : `+${pct}%`}
-                  </button>
-                );
-              })}
-            </div>
+                    <span
+                      className={[
+                        "text-[10px] uppercase tracking-wider font-bold",
+                        cashMissing
+                          ? "text-amber-800"
+                          : changeCents === 0
+                            ? "text-brown-light"
+                            : "text-green-800",
+                      ].join(" ")}
+                    >
+                      {cashMissing
+                        ? "⚠ Manque"
+                        : changeCents === 0
+                          ? "Compte exact"
+                          : "💸 À rendre"}
+                    </span>
+                    <span
+                      className={[
+                        "font-[family-name:var(--font-display)] text-2xl font-black tabular-nums",
+                        cashMissing
+                          ? "text-amber-900"
+                          : changeCents === 0
+                            ? "text-brown-light/70"
+                            : "text-green-700",
+                      ].join(" ")}
+                    >
+                      {cashMissing
+                        ? formatCents(Math.abs(changeCents))
+                        : changeCents === 0
+                          ? "—"
+                          : formatCents(changeCents)}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </div>
 
-          <div className="mt-5">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
-              Méthode
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {PAYMENT_METHOD_OPTIONS.map((opt) => (
+          {/* Footer */}
+          <div className="flex-shrink-0 px-6 pb-5 pt-2 border-t border-terracotta/20 bg-white-warm">
+            {selectedMethod === "cash" ? (
+              <div className="flex items-center gap-2 mt-3">
                 <button
-                  key={opt.key}
                   type="button"
-                  onClick={() => onConfirm(opt.key, tipCents)}
-                  disabled={busy}
-                  className="h-14 rounded-xl bg-cream border-2 border-terracotta/30 hover:border-gold hover:bg-gold/10 disabled:opacity-50 transition active:scale-95 flex items-center justify-center gap-2 text-brown font-semibold"
+                  onClick={() => setSelectedMethod(null)}
+                  className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition border border-terracotta/30"
                 >
-                  <span aria-hidden className="text-xl">
-                    {opt.icon}
-                  </span>
-                  <span>{opt.label}</span>
+                  Changer
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={validateCash}
+                  disabled={cashMissing || busy}
+                  className={[
+                    "flex-1 h-11 rounded-lg text-sm font-bold transition active:scale-[0.98]",
+                    cashMissing || busy
+                      ? "bg-brown-light/40 text-cream cursor-not-allowed"
+                      : "bg-red text-cream hover:bg-red-dark shadow-md",
+                  ].join(" ")}
+                >
+                  {busy
+                    ? "Validation…"
+                    : cashMissing
+                      ? `Manque ${formatCents(Math.abs(changeCents))}`
+                      : `Valider · ${formatCents(grand)}`}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="w-full mt-3 h-10 rounded-lg text-sm text-brown-light hover:text-brown transition"
+              >
+                Annuler
+              </button>
+            )}
           </div>
-
-          <button
-            type="button"
-            onClick={onCancel}
-            className="w-full mt-5 h-10 rounded-lg text-sm text-brown-light hover:text-brown transition"
-          >
-            Annuler
-          </button>
         </div>
       </motion.div>
     </>

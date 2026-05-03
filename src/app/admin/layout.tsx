@@ -14,6 +14,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 import { formatFrenchDate, todayISO } from "./_lib/format";
 import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
+import SoftwareFooter from "./_components/SoftwareFooter";
 
 /** Returns today's formatted date on the client, "" during SSR (avoids hydration mismatch). */
 function useTodayLabel(): string {
@@ -151,6 +152,16 @@ const NAV: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
         <path d="M5 4h14v16l-3-2-2 2-2-2-2 2-2-2-3 2V4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
         <path d="M9 9h6M9 13h6M9 17h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    href: "/admin/comptabilite",
+    label: "Comptabilité",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M3 9h18M8 14h2M14 14h2M8 18h2M14 18h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -348,6 +359,9 @@ export default function AdminLayout({
             Déconnexion
           </button>
         </div>
+
+        {/* Footer infos logiciel — version, client, statut abo, support */}
+        <SoftwareFooter />
       </aside>
 
       {/* ─── Main column ──────────────────────────────── */}

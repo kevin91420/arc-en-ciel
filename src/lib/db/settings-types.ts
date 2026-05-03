@@ -104,10 +104,15 @@ export interface RestaurantSettings {
   // Financial
   tax_rate: number;
 
-  // Legal
-  legal_name?: string | null;
-  siret?: string | null;
-  vat_number?: string | null;
+  // Legal — identité société pour mentions légales, URSSAF, factures
+  legal_name?: string | null;          // Raison sociale (ex "SARL L'Arc en Ciel")
+  legal_form?: string | null;          // Forme juridique (SARL, SAS, EURL, AE, etc.)
+  siret?: string | null;               // SIRET — 14 chiffres (établissement)
+  vat_number?: string | null;          // N° TVA intra (FR + 11 chiffres)
+  naf_code?: string | null;            // Code NAF/APE (ex 5610A pour resto trad)
+  capital_social?: string | null;      // Capital social (texte libre — "10 000 €")
+  rcs?: string | null;                 // RCS (ex "RCS Évry B 123 456 789")
+  cgv_url?: string | null;             // URL des CGV publiques
 
   updated_at: string;
 }
@@ -178,7 +183,12 @@ export const DEFAULT_SETTINGS: RestaurantSettings = {
   eighty_six_list: [],
   tax_rate: 10,
   legal_name: null,
+  legal_form: null,
   siret: null,
   vat_number: null,
+  naf_code: null,
+  capital_social: null,
+  rcs: null,
+  cgv_url: null,
   updated_at: new Date().toISOString(),
 };

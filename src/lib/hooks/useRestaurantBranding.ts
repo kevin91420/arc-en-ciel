@@ -29,8 +29,13 @@ export interface RestaurantBranding {
   city: string | null;
   country: string;
   legal_name?: string | null;
+  legal_form?: string | null;
   siret?: string | null;
   vat_number?: string | null;
+  naf_code?: string | null;
+  capital_social?: string | null;
+  rcs?: string | null;
+  cgv_url?: string | null;
   tax_rate?: number;
   /* Service-flow opt-in toggles (Sprint 4). */
   feature_runner_tickets?: boolean;
@@ -76,8 +81,13 @@ async function fetchBranding(): Promise<RestaurantBranding> {
       city: data.city ?? FALLBACK.city,
       country: data.country ?? FALLBACK.country,
       legal_name: data.legal_name ?? null,
+      legal_form: data.legal_form ?? null,
       siret: data.siret ?? null,
       vat_number: data.vat_number ?? null,
+      naf_code: data.naf_code ?? null,
+      capital_social: data.capital_social ?? null,
+      rcs: data.rcs ?? null,
+      cgv_url: data.cgv_url ?? null,
       tax_rate: data.tax_rate,
       feature_runner_tickets: Boolean(data.feature_runner_tickets),
       feature_special_flags: data.feature_special_flags !== false,
@@ -151,4 +161,55 @@ export function formatContactLine(b: RestaurantBranding): string {
   if (b.phone) parts.push(b.phone);
   if (b.email) parts.push(b.email);
   return parts.join(" · ");
+}
+
+/**
+ * Bloc juridique complet pour pied de ticket / Z fin de service / contrôle URSSAF.
+ * Retourne un tableau de lignes formatées, dans l'ordre :
+ *   - Forme juridique + Raison sociale
+ *   - Adresse + Code postal Ville
+ *   - SIRET + APE
+ *   - TVA intra
+ *   - RCS + Capital
+ *
+ * Lignes vides automatiquement filtrées.
+ */
+export function formatLegalLines(b: RestaurantBranding): string[] {
+  const lines: string[] = [];
+
+  /* Ligne 1 : forme juridique + raison sociale */
+  const company = [b.legal_form, b.legal_name].filter(Boolean).join(" ").trim();
+  if (company) lines.push(company);
+
+  /* Ligne 2 : adresse */
+  if (b.address) lines.push(b.address);
+
+  /* Ligne 3 : code postal + ville */
+  const cityLine = [b.postal_code, b.city]
+    .filter((s) => s && s.trim().length > 0)
+    .join(" ");
+  if (cityLine) lines.push(cityLine);
+
+  /* Ligne 4 : SIRET + APE (compact) */
+  const idLine = [
+    b.siret ? `SIRET ${b.siret}` : null,
+    b.naf_code ? `APE ${b.naf_code}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  if (idLine) lines.push(idLine);
+
+  /* Ligne 5 : TVA */
+  if (b.vat_number) lines.push(`TVA intra : ${b.vat_number}`);
+
+  /* Ligne 6 : RCS / capital (compact) */
+  const rcsLine = [
+    b.rcs,
+    b.capital_social ? `Capital ${b.capital_social}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  if (rcsLine) lines.push(rcsLine);
+
+  return lines;
 }

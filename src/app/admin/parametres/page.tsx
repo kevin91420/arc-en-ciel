@@ -1485,61 +1485,241 @@ function FeaturesTab({ draft, update }: TabProps) {
   );
 }
 
-/* ─── Legal ─── */
+/* ─── Legal — identité société ─── */
 function LegalTab({ draft, update }: TabProps) {
+  /* Validation visuelle SIRET = 14 chiffres (espaces autorisés) */
+  const siretDigits = (draft.siret ?? "").replace(/\s/g, "");
+  const siretValid = siretDigits === "" || /^\d{14}$/.test(siretDigits);
+
+  /* TVA intra FR = FR + 11 chiffres */
+  const vatNoSpace = (draft.vat_number ?? "").replace(/\s/g, "").toUpperCase();
+  const vatValid = vatNoSpace === "" || /^FR\d{11}$/.test(vatNoSpace);
+
+  /* Code NAF français = 4 chiffres + 1 lettre majuscule (ex 5610A) */
+  const nafTrim = (draft.naf_code ?? "").trim().toUpperCase();
+  const nafValid = nafTrim === "" || /^\d{4}[A-Z]$/.test(nafTrim);
+
   return (
     <div className="space-y-6">
       <TabIntro>
-        Informations juridiques pour vos mentions légales, CGV et factures.
+        Informations juridiques pour vos mentions légales, CGV, factures et
+        contrôle URSSAF. Ces données apparaissent en pied de ticket et sur le
+        Z de fin de service.
       </TabIntro>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <Field label="Raison sociale">
-          <input
-            type="text"
-            value={draft.legal_name ?? ""}
-            onChange={(e) => update("legal_name", e.target.value || null)}
-            placeholder="SARL L'Arc en Ciel"
-            className={inputCls}
-          />
-        </Field>
-        <Field label="SIRET">
-          <input
-            type="text"
-            value={draft.siret ?? ""}
-            onChange={(e) => update("siret", e.target.value || null)}
-            placeholder="123 456 789 00012"
-            className={inputCls}
-          />
-        </Field>
-        <Field label="N° TVA intra">
-          <input
-            type="text"
-            value={draft.vat_number ?? ""}
-            onChange={(e) => update("vat_number", e.target.value || null)}
-            placeholder="FR12 345678901"
-            className={inputCls}
-          />
-        </Field>
-        <Field
-          label="Taux de TVA (%)"
-          hint="Utilisé pour calculer le HT sur vos tickets."
-        >
-          <input
-            type="number"
-            step="0.1"
-            min={0}
-            max={100}
-            value={draft.tax_rate}
-            onChange={(e) =>
-              update(
-                "tax_rate",
-                Math.max(0, Math.min(100, Number(e.target.value) || 0))
-              )
+      {/* Identité juridique */}
+      <section>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-brown-light mb-3">
+          Identité juridique
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Field label="Raison sociale">
+            <input
+              type="text"
+              value={draft.legal_name ?? ""}
+              onChange={(e) => update("legal_name", e.target.value || null)}
+              placeholder="SARL L'Arc en Ciel"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Forme juridique">
+            <select
+              value={draft.legal_form ?? ""}
+              onChange={(e) => update("legal_form", e.target.value || null)}
+              className={inputCls}
+            >
+              <option value="">— Choisir —</option>
+              <option value="EI">EI (Entreprise Individuelle)</option>
+              <option value="EIRL">EIRL</option>
+              <option value="AE">AE (Auto-entrepreneur)</option>
+              <option value="EURL">EURL</option>
+              <option value="SARL">SARL</option>
+              <option value="SAS">SAS</option>
+              <option value="SASU">SASU</option>
+              <option value="SA">SA</option>
+              <option value="SCI">SCI</option>
+              <option value="autre">Autre</option>
+            </select>
+          </Field>
+        </div>
+      </section>
+
+      {/* Identifiants administratifs */}
+      <section>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-brown-light mb-3">
+          Identifiants administratifs
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Field
+            label="SIRET"
+            hint={
+              !siretValid
+                ? "⚠ Le SIRET doit contenir 14 chiffres."
+                : "14 chiffres — disponible sur votre Kbis."
             }
-            className={inputCls}
-          />
-        </Field>
+          >
+            <input
+              type="text"
+              inputMode="numeric"
+              value={draft.siret ?? ""}
+              onChange={(e) => update("siret", e.target.value || null)}
+              placeholder="123 456 789 00012"
+              className={[
+                inputCls,
+                !siretValid ? "border-red focus:border-red" : "",
+              ].join(" ")}
+            />
+          </Field>
+          <Field
+            label="Code NAF / APE"
+            hint={
+              !nafValid
+                ? "⚠ Format attendu : 4 chiffres + 1 lettre (ex 5610A)."
+                : "Ex 5610A pour restauration traditionnelle."
+            }
+          >
+            <input
+              type="text"
+              value={draft.naf_code ?? ""}
+              onChange={(e) =>
+                update("naf_code", e.target.value.toUpperCase() || null)
+              }
+              placeholder="5610A"
+              maxLength={5}
+              className={[
+                inputCls,
+                "uppercase",
+                !nafValid ? "border-red focus:border-red" : "",
+              ].join(" ")}
+            />
+          </Field>
+          <Field
+            label="N° TVA intra"
+            hint={
+              !vatValid
+                ? "⚠ Format FR + 11 chiffres (ex FR12345678901)."
+                : "Optionnel — les EI/AE en franchise de TVA n'en ont pas."
+            }
+          >
+            <input
+              type="text"
+              value={draft.vat_number ?? ""}
+              onChange={(e) =>
+                update("vat_number", e.target.value.toUpperCase() || null)
+              }
+              placeholder="FR 12 345 678 901"
+              className={[
+                inputCls,
+                "uppercase",
+                !vatValid ? "border-red focus:border-red" : "",
+              ].join(" ")}
+            />
+          </Field>
+          <Field
+            label="RCS"
+            hint="Tribunal de commerce + numéro (ex RCS Évry B 123 456 789)."
+          >
+            <input
+              type="text"
+              value={draft.rcs ?? ""}
+              onChange={(e) => update("rcs", e.target.value || null)}
+              placeholder="RCS Évry B 123 456 789"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Capital social">
+            <input
+              type="text"
+              value={draft.capital_social ?? ""}
+              onChange={(e) =>
+                update("capital_social", e.target.value || null)
+              }
+              placeholder="10 000 €"
+              className={inputCls}
+            />
+          </Field>
+          <Field
+            label="Taux de TVA (%)"
+            hint="Utilisé pour calculer le HT sur vos tickets."
+          >
+            <input
+              type="number"
+              step="0.1"
+              min={0}
+              max={100}
+              value={draft.tax_rate}
+              onChange={(e) =>
+                update(
+                  "tax_rate",
+                  Math.max(0, Math.min(100, Number(e.target.value) || 0))
+                )
+              }
+              className={inputCls}
+            />
+          </Field>
+        </div>
+      </section>
+
+      {/* CGV / liens publics */}
+      <section>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-brown-light mb-3">
+          Liens publics
+        </h3>
+        <div className="grid grid-cols-1 gap-5">
+          <Field
+            label="URL des CGV"
+            hint="Lien public vers vos Conditions Générales de Vente. Affiché en pied de ticket si rempli."
+          >
+            <input
+              type="url"
+              value={draft.cgv_url ?? ""}
+              onChange={(e) => update("cgv_url", e.target.value || null)}
+              placeholder="https://votre-resto.fr/cgv"
+              className={inputCls}
+            />
+          </Field>
+        </div>
+      </section>
+
+      {/* Aperçu pied de ticket */}
+      <LegalReceiptPreview draft={draft} />
+    </div>
+  );
+}
+
+/**
+ * Aperçu de ce qui sera imprimé en pied de ticket / Z de fin de service —
+ * permet à l'utilisateur de voir le rendu réel avant de sauvegarder.
+ */
+function LegalReceiptPreview({ draft }: { draft: TabProps["draft"] }) {
+  const lines = [
+    [draft.legal_form, draft.legal_name].filter(Boolean).join(" "),
+    draft.address,
+    [draft.postal_code, draft.city].filter(Boolean).join(" "),
+    draft.siret ? `SIRET : ${draft.siret}` : null,
+    draft.naf_code ? `APE : ${draft.naf_code}` : null,
+    draft.vat_number ? `TVA intra : ${draft.vat_number}` : null,
+    draft.rcs,
+    draft.capital_social ? `Capital : ${draft.capital_social}` : null,
+  ].filter((l): l is string => Boolean(l && l.trim()));
+
+  if (lines.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-terracotta/30 bg-cream/50 p-5 text-center">
+        <p className="text-xs text-brown-light/70">
+          Remplis les champs ci-dessus pour voir l&apos;aperçu du pied de ticket.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-terracotta/30 bg-cream/30 overflow-hidden">
+      <div className="bg-brown text-cream px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] font-bold">
+        Aperçu pied de ticket / Z fin de service
+      </div>
+      <div className="px-5 py-4 font-mono text-[11px] text-brown-light leading-relaxed whitespace-pre-wrap text-center">
+        {lines.join("\n")}
       </div>
     </div>
   );

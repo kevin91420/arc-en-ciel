@@ -61,10 +61,15 @@ const ALLOWED_KEYS = [
   "feature_special_flags",
   // Financial
   "tax_rate",
-  // Legal
+  // Legal — identité société (Sprint 7b)
   "legal_name",
+  "legal_form",
   "siret",
   "vat_number",
+  "naf_code",
+  "capital_social",
+  "rcs",
+  "cgv_url",
 ] as const;
 
 type AllowedKey = (typeof ALLOWED_KEYS)[number];

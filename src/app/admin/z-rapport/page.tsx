@@ -11,7 +11,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { formatCents } from "@/lib/format";
-import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
+import {
+  useRestaurantBranding,
+  formatLegalLines,
+} from "@/lib/hooks/useRestaurantBranding";
 
 interface ZReport {
   date: string;
@@ -534,14 +537,17 @@ export default function ZReportPage() {
             </section>
           )}
 
-          {/* ── Footer ── */}
-          <footer className="mt-8 pt-6 border-t-2 border-double border-brown/20 text-center text-xs text-brown-light">
-            <p>
-              Z #{report.date.replace(/-/g, "")} ·{" "}
-              {[branding.legal_name, branding.siret && `SIRET ${branding.siret}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+          {/* ── Footer — bloc juridique complet pour contrôle URSSAF ── */}
+          <footer className="mt-8 pt-6 border-t-2 border-double border-brown/20 text-center text-xs text-brown-light space-y-2">
+            <p className="font-semibold">Z #{report.date.replace(/-/g, "")}</p>
+
+            {/* Bloc identité société */}
+            <div className="text-[11px] leading-relaxed">
+              {formatLegalLines(branding).map((line, i) => (
+                <p key={i}>{line}</p>
+              ))}
+            </div>
+
             <div className="mt-6 flex items-end gap-8 justify-center">
               <div className="border-t border-brown/30 w-32 pt-1">
                 <span className="text-[10px] uppercase tracking-wider">
