@@ -1,13 +1,21 @@
 /**
  * POST /api/staff/cash/[id]/close
- *   Body : { actual_cash_cents: number, notes?: string }
+ *   Body : {
+ *     actual_cash_cents: number,
+ *     notes?: string,
+ *     cash_breakdown?: CashBreakdown   // Sprint 7b QW#5 — comptage détaillé
+ *   }
  *
  * Computes expected cash (open + takings) and the variance, then locks the
  * session. Used by /staff/caisse "Fermer la caisse" button.
+ *
+ * Si `cash_breakdown` est fourni, le total est recalculé côté serveur depuis
+ * le détail des dénominations (override de actual_cash_cents pour cohérence).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { closeCashSession } from "@/lib/db/pos-client";
+import type { CashBreakdown } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +43,12 @@ export async function POST(
     );
   }
 
+  /* Validation soft du breakdown — le sanitize côté pos-client fera le reste. */
+  let breakdown: CashBreakdown | undefined;
+  if (body.cash_breakdown && typeof body.cash_breakdown === "object") {
+    breakdown = body.cash_breakdown as CashBreakdown;
+  }
+
   try {
     const session = await closeCashSession(id, {
       actual_cash_cents: Math.round(actual),
@@ -42,6 +56,7 @@ export async function POST(
         typeof body.notes === "string"
           ? body.notes.trim().slice(0, 200) || undefined
           : undefined,
+      cash_breakdown: breakdown,
     });
     return NextResponse.json(session);
   } catch (err) {

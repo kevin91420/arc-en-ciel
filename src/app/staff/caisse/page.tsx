@@ -16,10 +16,15 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCents } from "@/lib/format";
-import type { CashSession } from "@/lib/db/pos-types";
+import {
+  CASH_DENOMINATIONS,
+  computeCashBreakdownTotal,
+  type CashBreakdown,
+  type CashSession,
+} from "@/lib/db/pos-types";
 
 type CurrentResponse =
   | { session: null }
@@ -108,7 +113,11 @@ export default function CaissePage() {
     }
   }
 
-  async function handleClose(actualCents: number, notes: string) {
+  async function handleClose(
+    actualCents: number,
+    notes: string,
+    breakdown?: CashBreakdown
+  ) {
     if (!current || current.session === null) return;
     setBusy(true);
     try {
@@ -121,6 +130,7 @@ export default function CaissePage() {
           body: JSON.stringify({
             actual_cash_cents: actualCents,
             notes,
+            cash_breakdown: breakdown,
           }),
         }
       );
@@ -466,6 +476,21 @@ function CashOpenModal({
   );
 }
 
+/**
+ * CashCloseModal — Sprint 7b QW#5 : comptage caisse détaillé.
+ *
+ * Deux modes :
+ *   - "Détaillé" (par défaut) : grille des 15 dénominations Euro
+ *     (7 billets + 8 pièces). L'utilisateur saisit le nombre d'unités de
+ *     chaque coupure, le total se calcule en live. C'est la méthode
+ *     pro qui élimine les erreurs de calcul mental.
+ *   - "Rapide" : input direct du montant total (legacy — pour les pros qui
+ *     comptent dans la tête).
+ *
+ * Demandé par retour terrain (boulangerie utilisatrice d'Angelo) :
+ * "Pour la caisse voir le nombre d'argent dedans : 1 billet de 100€,
+ * 20 pièces de 1€, etc."
+ */
 function CashCloseModal({
   expectedCents,
   busy,
@@ -475,21 +500,67 @@ function CashCloseModal({
   expectedCents: number;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: (cents: number, notes: string) => void;
+  onConfirm: (
+    cents: number,
+    notes: string,
+    breakdown?: CashBreakdown
+  ) => void;
 }) {
-  const [euros, setEuros] = useState("");
+  const [mode, setMode] = useState<"detail" | "quick">("detail");
+  const [breakdown, setBreakdown] = useState<CashBreakdown>({});
+  const [quickEuros, setQuickEuros] = useState("");
   const [notes, setNotes] = useState("");
-  const actualCents = Math.round(Number(euros.replace(",", ".") || 0) * 100);
+
+  const detailTotal = useMemo(
+    () => computeCashBreakdownTotal(breakdown),
+    [breakdown]
+  );
+  const quickCents = Math.round(
+    Number((quickEuros || "0").replace(",", ".")) * 100
+  );
+
+  const actualCents = mode === "detail" ? detailTotal : quickCents;
   const variance = actualCents - expectedCents;
+  const hasInput =
+    mode === "detail"
+      ? Object.values(breakdown).some((n) => (n ?? 0) > 0)
+      : quickEuros.trim() !== "";
+
+  function setCount(key: keyof CashBreakdown, value: string) {
+    /* On accepte vide = 0, sinon on parse en entier ≥ 0. */
+    const cleaned = value.replace(/[^0-9]/g, "");
+    if (cleaned === "") {
+      setBreakdown((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    const n = Math.max(0, Math.min(99999, parseInt(cleaned, 10) || 0));
+    setBreakdown((prev) => ({ ...prev, [key]: n }));
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!Number.isFinite(actualCents) || actualCents < 0) {
-      alert("Montant invalide");
       return;
     }
-    onConfirm(actualCents, notes.trim());
+    onConfirm(
+      actualCents,
+      notes.trim(),
+      mode === "detail" ? breakdown : undefined
+    );
   }
+
+  /* Bouton "Pré-remplir avec attendu" en mode rapide — utile pour ceux
+   * qui veulent juste signer sans compter (mode dégradé). */
+  function fillExpectedQuick() {
+    setQuickEuros((expectedCents / 100).toFixed(2));
+  }
+
+  const billDenominations = CASH_DENOMINATIONS.filter((d) => d.type === "bill");
+  const coinDenominations = CASH_DENOMINATIONS.filter((d) => d.type === "coin");
 
   return (
     <>
@@ -506,102 +577,253 @@ function CashCloseModal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.96 }}
         transition={{ type: "spring", damping: 25, stiffness: 280 }}
-        className="fixed inset-x-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-sm sm:w-full z-50"
+        className="fixed inset-x-4 top-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-md sm:w-full sm:max-h-[92vh] z-50 flex"
         role="dialog"
         aria-modal
       >
         <form
           onSubmit={submit}
-          className="bg-white-warm rounded-2xl shadow-2xl border border-terracotta/30 p-6"
+          className="bg-white-warm rounded-2xl shadow-2xl border border-terracotta/30 w-full flex flex-col overflow-hidden"
         >
-          <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown text-center">
-            Fermer la caisse
-          </h2>
-          <p className="text-xs text-brown-light text-center mt-1 mb-5">
-            Comptez physiquement les espèces dans le tiroir et tapez le montant.
-          </p>
+          {/* Header */}
+          <div className="px-6 py-5 border-b border-terracotta/20 flex-shrink-0">
+            <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown text-center">
+              Fermer la caisse
+            </h2>
+            <p className="text-[11px] text-brown-light/80 text-center mt-1">
+              Comptez physiquement les espèces dans le tiroir.
+            </p>
 
-          <div className="rounded-xl bg-cream border border-terracotta/20 p-4 mb-4">
-            <div className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
-              Total attendu
-            </div>
-            <div className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown tabular-nums">
-              {formatCents(expectedCents)}
+            {/* Total attendu */}
+            <div className="mt-4 rounded-xl bg-cream border border-terracotta/20 p-3 flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+                  Total attendu
+                </div>
+                <div className="font-[family-name:var(--font-display)] text-xl font-bold text-brown tabular-nums">
+                  {formatCents(expectedCents)}
+                </div>
+              </div>
+              {/* Mode tabs */}
+              <div className="flex bg-brown/5 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setMode("detail")}
+                  className={[
+                    "px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition",
+                    mode === "detail"
+                      ? "bg-white-warm text-brown shadow-sm"
+                      : "text-brown-light/70 hover:text-brown",
+                  ].join(" ")}
+                >
+                  Détaillé
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("quick")}
+                  className={[
+                    "px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition",
+                    mode === "quick"
+                      ? "bg-white-warm text-brown shadow-sm"
+                      : "text-brown-light/70 hover:text-brown",
+                  ].join(" ")}
+                >
+                  Rapide
+                </button>
+              </div>
             </div>
           </div>
 
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
-              Compté en caisse
-            </span>
-            <div className="mt-1.5 relative">
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+            {mode === "detail" ? (
+              <div className="space-y-4">
+                {/* Billets */}
+                <DenominationSection
+                  title="Billets"
+                  denominations={billDenominations}
+                  breakdown={breakdown}
+                  onCountChange={setCount}
+                />
+                {/* Pièces */}
+                <DenominationSection
+                  title="Pièces"
+                  denominations={coinDenominations}
+                  breakdown={breakdown}
+                  onCountChange={setCount}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
+                    Compté en caisse
+                  </span>
+                  <div className="mt-1.5 relative">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={quickEuros}
+                      onChange={(e) => setQuickEuros(e.target.value)}
+                      placeholder="0,00"
+                      autoFocus
+                      className="w-full px-4 py-4 pr-10 rounded-xl bg-white-warm border border-terracotta/30 text-brown text-3xl font-bold text-center tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-brown-light text-xl">
+                      €
+                    </span>
+                  </div>
+                </label>
+                <button
+                  type="button"
+                  onClick={fillExpectedQuick}
+                  className="mt-2 text-[11px] text-brown-light hover:text-brown underline-offset-2 hover:underline font-semibold"
+                >
+                  Pré-remplir avec le total attendu ({formatCents(expectedCents)})
+                </button>
+              </div>
+            )}
+
+            {/* Notes */}
+            <label className="block mt-5">
+              <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
+                Note (optionnel)
+              </span>
               <input
-                type="number"
-                step="0.01"
-                min={0}
-                value={euros}
-                onChange={(e) => setEuros(e.target.value)}
-                autoFocus
-                className="w-full px-4 py-4 pr-10 rounded-xl bg-white-warm border border-terracotta/30 text-brown text-3xl font-bold text-center tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Erreur de rendu, prélèvement, etc."
+                maxLength={200}
+                className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold"
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-brown-light text-xl">
-                €
+            </label>
+          </div>
+
+          {/* Sticky footer : total + variance + boutons */}
+          <div className="flex-shrink-0 border-t border-terracotta/20 bg-white-warm px-6 py-4">
+            {/* Total compté en gros */}
+            <div className="rounded-xl bg-brown text-cream px-4 py-3 mb-3 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-cream/70 font-bold">
+                Total compté
+              </span>
+              <span className="font-[family-name:var(--font-display)] text-2xl font-bold tabular-nums">
+                {formatCents(actualCents)}
               </span>
             </div>
-          </label>
 
-          {euros && (
-            <div
-              className={[
-                "mt-3 px-3 py-2 rounded-lg text-sm font-semibold text-center",
-                variance === 0
-                  ? "bg-green-100 text-green-700"
-                  : variance > 0
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-red/10 text-red-dark",
-              ].join(" ")}
-            >
-              Écart :{" "}
-              <span className="font-bold tabular-nums">
-                {variance === 0
-                  ? "± 0,00 €"
-                  : `${variance > 0 ? "+" : ""}${formatCents(variance)}`}
-              </span>
-              {variance < 0 && " (manque)"}
-              {variance > 0 && " (excédent)"}
+            {/* Variance — affichée uniquement si on a saisi quelque chose */}
+            {hasInput && (
+              <div
+                className={[
+                  "rounded-lg px-3 py-2 text-sm font-semibold text-center mb-3 flex items-center justify-between",
+                  variance === 0
+                    ? "bg-green-100 text-green-800"
+                    : variance > 0
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-red/10 text-red-dark",
+                ].join(" ")}
+              >
+                <span className="text-[10px] uppercase tracking-wider font-bold">
+                  Écart vs attendu
+                </span>
+                <span className="font-bold tabular-nums">
+                  {variance === 0
+                    ? "± 0,00 €"
+                    : `${variance > 0 ? "+" : ""}${formatCents(variance)}`}
+                  {variance < 0 && " (manque)"}
+                  {variance > 0 && " (excédent)"}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex-1 h-11 rounded-lg text-sm text-brown-light hover:text-brown transition border border-terracotta/30"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !hasInput}
+                className="flex-[2] h-11 rounded-lg bg-red text-cream text-sm font-bold hover:bg-red-dark transition disabled:opacity-50 active:scale-95 inline-flex items-center justify-center gap-1.5"
+              >
+                {busy ? "Fermeture…" : "🔒 Fermer la caisse"}
+              </button>
             </div>
-          )}
-
-          <label className="block mt-4">
-            <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
-              Note (optionnel)
-            </span>
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Erreur de rendu, prélèvement, etc."
-              className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold"
-            />
-          </label>
-
-          <div className="mt-5 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="flex-1 h-11 rounded-lg text-sm text-brown-light hover:text-brown transition"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              disabled={busy || !euros}
-              className="flex-[2] h-11 rounded-lg bg-red text-cream text-sm font-bold hover:bg-red-dark transition disabled:opacity-50 active:scale-95 inline-flex items-center justify-center gap-1.5"
-            >
-              🔒 Fermer la caisse
-            </button>
           </div>
         </form>
       </motion.div>
     </>
+  );
+}
+
+/**
+ * Section d'une catégorie de dénominations (billets ou pièces).
+ * Grid 2-col : label + sous-total à gauche, input compteur à droite.
+ */
+function DenominationSection({
+  title,
+  denominations,
+  breakdown,
+  onCountChange,
+}: {
+  title: string;
+  denominations: typeof CASH_DENOMINATIONS;
+  breakdown: CashBreakdown;
+  onCountChange: (key: keyof CashBreakdown, value: string) => void;
+}) {
+  return (
+    <section>
+      <h3 className="text-[10px] uppercase tracking-[0.2em] text-brown-light font-bold mb-2">
+        {title}
+      </h3>
+      <ul className="space-y-1.5">
+        {denominations.map((d) => {
+          const count = breakdown[d.key] ?? 0;
+          const subtotal = count * d.cents;
+          return (
+            <li
+              key={d.key}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-cream/50 border border-terracotta/15 hover:border-terracotta/30 transition"
+            >
+              {/* Label coupure */}
+              <div className="w-16 flex-shrink-0">
+                <span className="font-[family-name:var(--font-display)] text-base font-bold text-brown tabular-nums">
+                  {d.label}
+                </span>
+              </div>
+
+              {/* Symbole "×" */}
+              <span className="text-brown-light/50 text-sm">×</span>
+
+              {/* Input compteur */}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={count > 0 ? String(count) : ""}
+                onChange={(e) => onCountChange(d.key, e.target.value)}
+                placeholder="0"
+                className="w-16 h-9 px-2 rounded-md bg-white-warm border border-terracotta/30 text-brown text-base font-bold text-center tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+
+              {/* Symbole "=" */}
+              <span className="text-brown-light/50 text-sm">=</span>
+
+              {/* Sous-total */}
+              <span
+                className={[
+                  "ml-auto font-[family-name:var(--font-display)] text-base font-bold tabular-nums tracking-tight",
+                  count > 0 ? "text-brown" : "text-brown-light/30",
+                ].join(" ")}
+              >
+                {formatCents(subtotal)}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

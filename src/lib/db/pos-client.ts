@@ -732,6 +732,11 @@ export async function closeCashSession(
     actual_cash_cents: number;
     staff_id?: string;
     notes?: string;
+    /* Sprint 7b QW#5 — détail des dénominations pour traçabilité fine.
+     * Si fourni, on stocke le breakdown ; le total est recalculé côté serveur
+     * pour vérifier qu'il matche bien actual_cash_cents (sécurité) et on
+     * privilégie le total recalculé pour éviter les divergences. */
+    cash_breakdown?: import("./pos-types").CashBreakdown;
   },
   tenantId?: string
 ): Promise<CashSession> {
@@ -746,6 +751,18 @@ export async function closeCashSession(
   const takings = await computeCashTakingsSinceOpen(session.opened_at, tid);
   const expected = session.opening_amount_cents + takings;
 
+  /* Si on a un breakdown, on recalcule le total côté serveur — c'est la
+   * source de vérité. Le client peut envoyer actual_cash_cents pour
+   * compatibilité legacy, mais le breakdown override si présent. */
+  let actualCents = Math.max(0, Math.round(payload.actual_cash_cents));
+  let breakdown: import("./pos-types").CashBreakdown | null = null;
+  if (payload.cash_breakdown) {
+    /* Import dynamique pour éviter les cycles si pos-types s'enrichit */
+    const { computeCashBreakdownTotal } = await import("./pos-types");
+    breakdown = sanitizeBreakdown(payload.cash_breakdown);
+    actualCents = computeCashBreakdownTotal(breakdown);
+  }
+
   const [row] = await sb<CashSession[]>(
     `cash_sessions?id=eq.${sessionId}${tenantClause(tid)}`,
     {
@@ -753,15 +770,38 @@ export async function closeCashSession(
       body: JSON.stringify({
         closed_at: new Date().toISOString(),
         expected_cash_cents: expected,
-        actual_cash_cents: Math.max(0, Math.round(payload.actual_cash_cents)),
+        actual_cash_cents: actualCents,
         closed_by: payload.staff_id ?? null,
         notes: payload.notes
           ? `${session.notes ?? ""}\n[Fermeture] ${payload.notes}`.trim()
           : session.notes,
+        cash_breakdown: breakdown,
       }),
     }
   );
   return row;
+}
+
+/**
+ * Coerce le breakdown reçu : entiers positifs uniquement, clés autorisées
+ * uniquement. Évite qu'un client envoie des valeurs absurdes.
+ */
+function sanitizeBreakdown(
+  raw: import("./pos-types").CashBreakdown
+): import("./pos-types").CashBreakdown {
+  const ALLOWED_KEYS = [
+    "b500", "b200", "b100", "b50", "b20", "b10", "b5",
+    "c200", "c100", "c050", "c020", "c010", "c005", "c002", "c001",
+  ] as const;
+  const out: Record<string, number> = {};
+  for (const k of ALLOWED_KEYS) {
+    const v = (raw as Record<string, unknown>)[k];
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0 && n < 100_000) {
+      out[k] = Math.floor(n);
+    }
+  }
+  return out as import("./pos-types").CashBreakdown;
 }
 
 export async function listCashSessions(

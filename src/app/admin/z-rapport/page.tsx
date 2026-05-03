@@ -15,6 +15,10 @@ import {
   useRestaurantBranding,
   formatLegalLines,
 } from "@/lib/hooks/useRestaurantBranding";
+import {
+  CASH_DENOMINATIONS,
+  type CashBreakdown,
+} from "@/lib/db/pos-types";
 
 interface ZReport {
   date: string;
@@ -54,6 +58,7 @@ interface ZReport {
     expected_cash_cents: number | null;
     actual_cash_cents: number | null;
     variance_cents: number | null;
+    cash_breakdown?: CashBreakdown | null;
   }>;
   cancellations: Array<{
     order_id: string;
@@ -384,6 +389,19 @@ export default function ZReportPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Détail des dénominations — Sprint 7b QW#5 — affiché pour
+                  chaque session ayant un breakdown enregistré. Crucial pour
+                  la traçabilité et l'audit comptable. */}
+              {report.cash_sessions
+                .filter((s) => hasBreakdown(s.cash_breakdown))
+                .map((s) => (
+                  <CashBreakdownDetails
+                    key={`bd-${s.id}`}
+                    breakdown={s.cash_breakdown!}
+                    openedAt={s.opened_at}
+                  />
+                ))}
             </section>
           )}
 
@@ -597,6 +615,95 @@ function Stat({
       </div>
       <div className="text-[10px] uppercase tracking-wider text-brown-light/70 font-semibold mt-1">
         {label}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Cash breakdown details — Sprint 7b QW#5
+   Affiche le détail des dénominations comptées à la fermeture.
+   Layout deux colonnes (billets / pièces) compact, imprimable.
+   ═══════════════════════════════════════════════════════════ */
+
+function hasBreakdown(b: CashBreakdown | null | undefined): boolean {
+  if (!b) return false;
+  return Object.values(b).some((v) => (v ?? 0) > 0);
+}
+
+function CashBreakdownDetails({
+  breakdown,
+  openedAt,
+}: {
+  breakdown: CashBreakdown;
+  openedAt: string;
+}) {
+  const bills = CASH_DENOMINATIONS.filter((d) => d.type === "bill");
+  const coins = CASH_DENOMINATIONS.filter((d) => d.type === "coin");
+  const total = CASH_DENOMINATIONS.reduce(
+    (sum, d) => sum + (breakdown[d.key] ?? 0) * d.cents,
+    0
+  );
+
+  /* On ne montre que les lignes avec count > 0 — sinon le tableau est trop long */
+  const renderRows = (denoms: typeof CASH_DENOMINATIONS) =>
+    denoms
+      .filter((d) => (breakdown[d.key] ?? 0) > 0)
+      .map((d) => {
+        const count = breakdown[d.key] ?? 0;
+        return (
+          <tr key={d.key} className="border-b border-brown/5 last:border-0">
+            <td className="py-1 text-brown tabular-nums">{d.label}</td>
+            <td className="py-1 text-right text-brown tabular-nums">×{count}</td>
+            <td className="py-1 text-right text-brown font-semibold tabular-nums">
+              {formatCents(count * d.cents)}
+            </td>
+          </tr>
+        );
+      });
+
+  const billRows = renderRows(bills);
+  const coinRows = renderRows(coins);
+
+  return (
+    <div className="mt-4 rounded-xl border border-terracotta/20 bg-cream/30 overflow-hidden">
+      <div className="bg-brown/5 px-4 py-2 border-b border-terracotta/15 flex items-baseline justify-between">
+        <p className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+          Détail caisse · session {timeFR(openedAt)}
+        </p>
+        <p className="font-[family-name:var(--font-display)] text-base font-bold text-brown tabular-nums">
+          {formatCents(total)}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0 sm:divide-x divide-terracotta/15">
+        {/* Billets */}
+        <div className="px-4 py-3">
+          <h4 className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold mb-1.5">
+            Billets
+          </h4>
+          {billRows.length === 0 ? (
+            <p className="text-[11px] text-brown-light/50 italic">—</p>
+          ) : (
+            <table className="w-full text-xs">
+              <tbody>{billRows}</tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pièces */}
+        <div className="px-4 py-3 border-t sm:border-t-0 border-terracotta/15">
+          <h4 className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold mb-1.5">
+            Pièces
+          </h4>
+          {coinRows.length === 0 ? (
+            <p className="text-[11px] text-brown-light/50 italic">—</p>
+          ) : (
+            <table className="w-full text-xs">
+              <tbody>{coinRows}</tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );
