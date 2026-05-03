@@ -8,11 +8,16 @@
  * Body for POST :
  *   {
  *     amount_cents: number,
- *     method: 'cash' | 'card' | 'ticket_resto' | 'other',
+ *     method: 'cash' | 'card' | 'ticket_resto' | 'voucher' | 'other',
  *     tip_cents?: number,
  *     item_ids?: string[],   // soft link to which items this payment covered
  *     notes?: string,
+ *     voucher_code?: string, // requis si method = 'voucher'
  *   }
+ *
+ * Pour method='voucher' : on redeem l'avoir AVANT de créer le paiement.
+ * Si le redeem échoue (avoir invalide / expiré / solde insuffisant), aucune
+ * row n'est créée et l'erreur est remontée.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +26,10 @@ import {
   getOrder,
   listPaymentsForOrder,
 } from "@/lib/db/pos-client";
+import {
+  redeemVoucher,
+  VoucherRedemptionError,
+} from "@/lib/db/vouchers-client";
 import type { PaymentMethod } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +38,7 @@ const VALID_METHODS: ReadonlySet<PaymentMethod> = new Set([
   "cash",
   "card",
   "ticket_resto",
+  "voucher",
   "other",
 ]);
 
@@ -85,6 +95,7 @@ export async function POST(
     method?: unknown;
     item_ids?: unknown;
     notes?: unknown;
+    voucher_code?: unknown;
   };
   try {
     body = await req.json();
@@ -146,12 +157,57 @@ export async function POST(
       );
     }
 
+    /* Pour les paiements par avoir : on redeem l'avoir AVANT de créer la
+     * row payment. Si la validation échoue (code invalide, expiré, solde
+     * insuffisant), aucune row n'est créée. Le notes du payment est
+     * automatiquement enrichi avec le code pour traçabilité. */
+    let voucherNotes = notes;
+    if (method === "voucher") {
+      const voucherCode =
+        typeof body.voucher_code === "string" ? body.voucher_code.trim() : "";
+      if (!voucherCode) {
+        return NextResponse.json(
+          {
+            error:
+              "voucher_code requis pour un paiement par avoir.",
+          },
+          { status: 400 }
+        );
+      }
+      try {
+        const redeem = await redeemVoucher({
+          voucher_code: voucherCode,
+          order_id: id,
+          amount_cents: Math.round(amount),
+        });
+        /* On préfixe le note pour traçabilité */
+        const codeTag = `[Avoir ${redeem.voucher.code}]`;
+        voucherNotes = voucherNotes
+          ? `${codeTag} ${voucherNotes}`
+          : codeTag;
+      } catch (e) {
+        if (e instanceof VoucherRedemptionError) {
+          const status =
+            e.code === "not_found"
+              ? 404
+              : e.code === "amount_too_high"
+                ? 400
+                : 409;
+          return NextResponse.json(
+            { error: e.message, code: e.code },
+            { status }
+          );
+        }
+        throw e;
+      }
+    }
+
     const payment = await addPayment(id, {
       amount_cents: Math.round(amount),
       tip_cents: tipCents,
       method,
       item_ids: itemIds,
-      notes,
+      notes: voucherNotes,
     });
 
     /* Re-fetch order after the trigger has had a chance to finalize it. */

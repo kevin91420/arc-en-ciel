@@ -23,7 +23,12 @@ export type OrderItemStatus =
 
 export type Station = "main" | "pizza" | "grill" | "cold" | "dessert" | "bar";
 
-export type PaymentMethod = "cash" | "card" | "ticket_resto" | "other";
+export type PaymentMethod =
+  | "cash"
+  | "card"
+  | "ticket_resto"
+  | "voucher"     // Sprint 7b QW#6 — paiement par avoir client
+  | "other";
 
 /* ── Special flags ────────────────────────────────────────
  * Optional tags the server can stick on an order so the kitchen handles it

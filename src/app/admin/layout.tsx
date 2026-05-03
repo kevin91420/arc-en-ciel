@@ -166,6 +166,22 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/avoirs",
+    label: "Avoirs",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path
+          d="M3 8l4-4h10l4 4M3 8v10a2 2 0 002 2h14a2 2 0 002-2V8M3 8h18"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="12" cy="14" r="2" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/menu",
     label: "Carte",
     icon: (

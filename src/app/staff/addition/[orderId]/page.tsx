@@ -21,6 +21,11 @@ import type {
   RefundMethod,
 } from "@/lib/db/pos-types";
 import { CANCELLATION_REASONS } from "@/lib/db/pos-types";
+import type { VoucherRow } from "@/lib/db/vouchers-types";
+
+/* Vue publique du voucher renvoyée par /api/staff/vouchers/lookup
+ * (sans le champ `notes` qui est interne). */
+type VoucherLookupResult = Omit<VoucherRow, "notes">;
 import {
   useRestaurantBranding,
   formatAddressLines,
@@ -37,6 +42,7 @@ const PAYMENT_METHOD_OPTIONS: {
   { key: "card", label: "Carte", icon: "💳" },
   { key: "cash", label: "Espèces", icon: "💵" },
   { key: "ticket_resto", label: "Ticket Resto", icon: "🎟" },
+  { key: "voucher", label: "Avoir", icon: "🎫" },
   { key: "other", label: "Autre", icon: "•" },
 ];
 
@@ -151,7 +157,7 @@ export default function AdditionPage({ params }: PageProps) {
   );
 
   const confirmPayment = useCallback(
-    async (method: PaymentMethod, tipCents: number) => {
+    async (method: PaymentMethod, tipCents: number, voucherCode?: string) => {
       if (!paymentMethodModal || paymentBusy) return;
       setPaymentBusy(true);
       try {
@@ -164,6 +170,7 @@ export default function AdditionPage({ params }: PageProps) {
             tip_cents: tipCents,
             method,
             item_ids: paymentMethodModal.itemIds,
+            voucher_code: voucherCode,
           }),
         });
         if (!res.ok) {
@@ -861,7 +868,11 @@ function PaymentMethodModal({
   amountCents: number;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: (method: PaymentMethod, tipCents: number) => void;
+  onConfirm: (
+    method: PaymentMethod,
+    tipCents: number,
+    voucherCode?: string
+  ) => void;
 }) {
   const [tipPct, setTipPct] = useState<0 | 5 | 10 | 15>(0);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(
@@ -869,6 +880,15 @@ function PaymentMethodModal({
   );
   const [cashReceivedCents, setCashReceivedCents] = useState<number>(0);
   const [cashTextValue, setCashTextValue] = useState<string>("");
+
+  /* Sprint 7b QW#6 — voucher state */
+  const [voucherCode, setVoucherCode] = useState<string>("");
+  const [voucherLookup, setVoucherLookup] = useState<
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "found"; voucher: VoucherLookupResult }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
 
   const tipCents = useMemo(
     () => Math.round((amountCents * tipPct) / 100),
@@ -896,14 +916,23 @@ function PaymentMethodModal({
     }
   }, [grand, selectedMethod, cashReceivedCents]);
 
+  /* Reset voucher state quand on change de méthode */
+  useEffect(() => {
+    if (selectedMethod !== "voucher") {
+      setVoucherCode("");
+      setVoucherLookup({ kind: "idle" });
+    }
+  }, [selectedMethod]);
+
   const changeCents = cashReceivedCents - grand;
   const cashMissing = selectedMethod === "cash" && changeCents < 0;
 
   function pickMethod(m: PaymentMethod) {
-    /* Pour CB / ticket / autre on confirme direct (pas de monnaie à rendre).
-     * Pour espèces on attend que l'utilisateur saisisse le montant reçu. */
-    if (m === "cash") {
-      setSelectedMethod("cash");
+    /* Pour CB / ticket / autre : on confirme direct (pas d'étape).
+     * Pour espèces : on demande le montant reçu (rendu de monnaie).
+     * Pour avoir : on demande le code, on lookup, puis valide. */
+    if (m === "cash" || m === "voucher") {
+      setSelectedMethod(m);
       return;
     }
     onConfirm(m, tipCents);
@@ -912,6 +941,78 @@ function PaymentMethodModal({
   function validateCash() {
     if (cashMissing || busy) return;
     onConfirm("cash", tipCents);
+  }
+
+  async function lookupVoucherCode() {
+    const code = voucherCode.trim().toUpperCase();
+    if (code.length < 3) return;
+    setVoucherLookup({ kind: "loading" });
+    try {
+      const res = await fetch(
+        `/api/staff/vouchers/lookup?code=${encodeURIComponent(code)}`,
+        { credentials: "include", cache: "no-store" }
+      );
+      if (res.status === 404) {
+        setVoucherLookup({
+          kind: "error",
+          message: "Aucun avoir trouvé avec ce code.",
+        });
+        return;
+      }
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        setVoucherLookup({
+          kind: "error",
+          message: d.error || `Erreur ${res.status}`,
+        });
+        return;
+      }
+      const data = (await res.json()) as { voucher: VoucherLookupResult };
+
+      /* Vérifications côté client pour feedback rapide. Le serveur revérifiera
+       * au moment du redeem mais l'utilisateur a un retour instantané ici. */
+      if (data.voucher.status === "cancelled") {
+        setVoucherLookup({
+          kind: "error",
+          message: "Cet avoir a été annulé.",
+        });
+        return;
+      }
+      if (data.voucher.status === "redeemed") {
+        setVoucherLookup({
+          kind: "error",
+          message: "Cet avoir a déjà été entièrement utilisé.",
+        });
+        return;
+      }
+      if (
+        data.voucher.expires_at &&
+        new Date(data.voucher.expires_at).getTime() < Date.now()
+      ) {
+        setVoucherLookup({
+          kind: "error",
+          message: `Cet avoir a expiré le ${new Date(data.voucher.expires_at).toLocaleDateString("fr-FR")}.`,
+        });
+        return;
+      }
+      setVoucherLookup({ kind: "found", voucher: data.voucher });
+    } catch (e) {
+      setVoucherLookup({
+        kind: "error",
+        message: (e as Error).message || "Erreur réseau",
+      });
+    }
+  }
+
+  function validateVoucher() {
+    if (voucherLookup.kind !== "found" || busy) return;
+    /* On envoie au max le solde de l'avoir OU le grand total, le plus petit. */
+    const usable = Math.min(voucherLookup.voucher.remaining_cents, grand);
+    if (usable < grand) {
+      /* Le serveur acceptera le paiement partiel — la commande aura un
+       * remaining qui sera réglé avec une autre méthode après. */
+    }
+    onConfirm("voucher", tipCents, voucherLookup.voucher.code);
   }
 
   function setCashPreset(cents: number) {
@@ -1137,6 +1238,110 @@ function PaymentMethodModal({
                 </div>
               </motion.div>
             )}
+
+            {/* Voucher lookup — Sprint 7b QW#6 */}
+            {selectedMethod === "voucher" && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="overflow-hidden"
+              >
+                <div className="bg-gold/10 rounded-xl p-4 border border-gold/40 space-y-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-1.5">
+                      Code de l&apos;avoir
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={voucherCode}
+                        onChange={(e) => {
+                          setVoucherCode(e.target.value.toUpperCase());
+                          if (voucherLookup.kind !== "idle") {
+                            setVoucherLookup({ kind: "idle" });
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            lookupVoucherCode();
+                          }
+                        }}
+                        placeholder="AVR-XXXX"
+                        autoFocus
+                        className="flex-1 px-3 py-2.5 rounded-lg bg-white-warm border border-terracotta/40 text-brown text-base font-mono font-bold uppercase focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={lookupVoucherCode}
+                        disabled={
+                          voucherCode.trim().length < 3 ||
+                          voucherLookup.kind === "loading"
+                        }
+                        className="h-11 px-4 rounded-lg bg-brown text-cream text-sm font-bold hover:bg-brown-light transition disabled:opacity-50 active:scale-95"
+                      >
+                        {voucherLookup.kind === "loading"
+                          ? "..."
+                          : "Vérifier"}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-brown-light/70 mt-1.5">
+                      Tape le code ou scanne le QR sur le bon présenté par le
+                      client.
+                    </p>
+                  </div>
+
+                  {/* Résultat lookup */}
+                  {voucherLookup.kind === "error" && (
+                    <div className="rounded-lg bg-red/10 border border-red/30 px-3 py-2.5 text-xs text-red-dark">
+                      <p className="font-bold flex items-center gap-1.5">
+                        <span aria-hidden>⚠</span> Avoir non valide
+                      </p>
+                      <p className="mt-0.5 text-red-dark/80">
+                        {voucherLookup.message}
+                      </p>
+                    </div>
+                  )}
+
+                  {voucherLookup.kind === "found" && (
+                    <div className="rounded-lg bg-green-50 border border-green-300 px-3 py-3">
+                      <div className="flex items-baseline justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] uppercase tracking-wider text-green-800 font-bold">
+                            ✓ Avoir valide
+                          </p>
+                          <p className="text-sm text-brown font-semibold mt-0.5 truncate">
+                            {voucherLookup.voucher.customer_name ||
+                              voucherLookup.voucher.customer_email ||
+                              "Client"}
+                          </p>
+                        </div>
+                        <span className="font-[family-name:var(--font-display)] text-2xl font-bold text-green-700 tabular-nums flex-shrink-0">
+                          {formatCents(
+                            voucherLookup.voucher.remaining_cents
+                          )}
+                        </span>
+                      </div>
+                      {voucherLookup.voucher.expires_at && (
+                        <p className="text-[10px] text-brown-light/80">
+                          Expire le{" "}
+                          {new Date(
+                            voucherLookup.voucher.expires_at
+                          ).toLocaleDateString("fr-FR")}
+                        </p>
+                      )}
+                      {voucherLookup.voucher.remaining_cents < grand && (
+                        <div className="mt-2 px-2 py-1.5 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                          ⚠ Solde insuffisant pour couvrir{" "}
+                          {formatCents(grand)}. Le client devra compléter avec
+                          un autre moyen de paiement.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
           </div>
 
           {/* Footer */}
@@ -1166,6 +1371,38 @@ function PaymentMethodModal({
                     : cashMissing
                       ? `Manque ${formatCents(Math.abs(changeCents))}`
                       : `Valider · ${formatCents(grand)}`}
+                </button>
+              </div>
+            ) : selectedMethod === "voucher" ? (
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMethod(null)}
+                  className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition border border-terracotta/30"
+                >
+                  Changer
+                </button>
+                <button
+                  type="button"
+                  onClick={validateVoucher}
+                  disabled={voucherLookup.kind !== "found" || busy}
+                  className={[
+                    "flex-1 h-11 rounded-lg text-sm font-bold transition active:scale-[0.98]",
+                    voucherLookup.kind !== "found" || busy
+                      ? "bg-brown-light/40 text-cream cursor-not-allowed"
+                      : "bg-red text-cream hover:bg-red-dark shadow-md",
+                  ].join(" ")}
+                >
+                  {busy
+                    ? "Validation…"
+                    : voucherLookup.kind !== "found"
+                      ? "Vérifie d'abord le code"
+                      : `Utiliser cet avoir · ${formatCents(
+                          Math.min(
+                            voucherLookup.voucher.remaining_cents,
+                            grand
+                          )
+                        )}`}
                 </button>
               </div>
             ) : (
