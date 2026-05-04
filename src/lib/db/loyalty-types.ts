@@ -48,6 +48,11 @@ export interface LoyaltyCardFull extends LoyaltyCard {
   customer_name?: string;
   customer_email?: string | null;
   customer_phone?: string | null;
+  /* Sprint 7b — anniversaires + consentements (RGPD) */
+  customer_birthday?: string | null;            // "YYYY-MM-DD"
+  customer_birthday_consent?: boolean;
+  customer_marketing_consent?: boolean;
+  customer_sms_consent?: boolean;
   transactions?: LoyaltyTransaction[];
 }
 
@@ -55,6 +60,31 @@ export interface EnrollLoyaltyPayload {
   customer_name: string;
   customer_phone: string;
   customer_email?: string;
+  /* Sprint 7b — date de naissance optionnelle pour campagnes anniversaire */
+  customer_birthday?: string;                   // "YYYY-MM-DD"
+  birthday_consent?: boolean;
+  marketing_consent?: boolean;
+  sms_consent?: boolean;
+}
+
+/**
+ * Vue d'un client avec anniversaire ce mois — pour la page campagnes.
+ */
+export interface BirthdayCustomer {
+  customer_id: string;
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  birthday: string;                             // "YYYY-MM-DD"
+  birthday_day: number;                         // 1-31
+  birthday_month: number;                       // 1-12
+  age_turning: number | null;                   // âge qu'il/elle aura (null si pas d'année)
+  has_active_card: boolean;
+  card_number: string | null;
+  marketing_consent: boolean;
+  sms_consent: boolean;
+  total_visits: number;
+  total_spent_cents: number;
 }
 
 export interface LoyaltyStats {

@@ -7,6 +7,7 @@
  */
 
 import type {
+  BirthdayCustomer,
   LoyaltyCard,
   LoyaltyCardFull,
   LoyaltyTransaction,
@@ -122,10 +123,40 @@ export async function enrollCustomer(
         name: payload.customer_name,
         email: payload.customer_email || null,
         phone: payload.customer_phone?.replace(/\s/g, "") || null,
+        birthday: payload.customer_birthday || null,
+        birthday_consent: Boolean(payload.birthday_consent),
+        marketing_consent: Boolean(payload.marketing_consent),
+        sms_consent: Boolean(payload.sms_consent),
         restaurant_id: restaurantId,
       }),
     });
     customerId = created.id;
+  } else if (
+    payload.customer_birthday ||
+    payload.birthday_consent !== undefined ||
+    payload.marketing_consent !== undefined ||
+    payload.sms_consent !== undefined
+  ) {
+    /* Customer existant — on met à jour les champs anniversaire/consentements
+     * uniquement si le payload les fournit (l'utilisateur peut compléter
+     * son profil au fil de l'eau). */
+    const patch: Record<string, unknown> = {};
+    if (payload.customer_birthday) patch.birthday = payload.customer_birthday;
+    if (payload.birthday_consent !== undefined)
+      patch.birthday_consent = Boolean(payload.birthday_consent);
+    if (payload.marketing_consent !== undefined)
+      patch.marketing_consent = Boolean(payload.marketing_consent);
+    if (payload.sms_consent !== undefined)
+      patch.sms_consent = Boolean(payload.sms_consent);
+    if (Object.keys(patch).length > 0) {
+      await sb(
+        `customers?id=eq.${customerId}${tenantFilter}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        }
+      ).catch(() => null);
+    }
   }
 
   /* 2. Check if this customer already has a card (dans CE tenant) */
@@ -496,6 +527,97 @@ export async function getLoyaltyStats(tenantId?: string): Promise<LoyaltyStats> 
       cards.length > 0 ? totalStampsGiven / cards.length : 0,
     top_customers: topCustomers,
   };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BIRTHDAYS — Sprint 7b QW#7
+   ═══════════════════════════════════════════════════════════ */
+
+interface CustomerWithBirthday {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  birthday: string;
+  birthday_consent: boolean;
+  marketing_consent: boolean;
+  sms_consent: boolean;
+  visits_count: number;
+  total_spent_cents: number;
+}
+
+/**
+ * Liste les clients qui ont leur anniversaire dans le mois donné (1-12).
+ * Ne renvoie QUE les clients ayant donné `birthday_consent = true` (RGPD).
+ *
+ * Pour chaque client : indique l'âge qu'ils vont avoir, et s'ils ont une
+ * carte de fidélité active (utile pour personnaliser le message).
+ */
+export async function listBirthdaysForMonth(
+  month: number,
+  tenantId?: string
+): Promise<BirthdayCustomer[]> {
+  if (!USE_SUPABASE) return [];
+  if (month < 1 || month > 12) {
+    throw new Error(`Mois invalide : ${month} (attendu 1-12)`);
+  }
+
+  const restaurantId = await resolveTenantId(tenantId);
+  const tenantFilter = `&restaurant_id=eq.${encodeURIComponent(restaurantId)}`;
+
+  /* PostgREST n'a pas de fonction extract() exposée directement, donc on
+   * fait un range simple "BETWEEN 'XXXX-MM-01' AND 'XXXX-MM-31'" pour
+   * chaque année possible — pratiquement on filtre côté JS car la table
+   * customers reste limitée. À refactor en RPC si > 10k customers. */
+  const customers = await sb<CustomerWithBirthday[]>(
+    `customers?select=id,name,email,phone,birthday,birthday_consent,marketing_consent,sms_consent,visits_count,total_spent_cents&birthday=not.is.null&birthday_consent=eq.true${tenantFilter}`
+  );
+
+  const today = new Date();
+  const currentYear = today.getFullYear();
+
+  /* Charge les cards pour savoir qui est enrolled */
+  const cards = await sb<Array<{ customer_id: string; card_number: string }>>(
+    `loyalty_cards?select=customer_id,card_number${tenantFilter}`
+  );
+  const cardByCustomer = new Map(cards.map((c) => [c.customer_id, c]));
+
+  const results: BirthdayCustomer[] = [];
+  for (const c of customers) {
+    if (!c.birthday) continue;
+    const [yearStr, monthStr, dayStr] = c.birthday.split("-");
+    const birthYear = parseInt(yearStr, 10);
+    const birthMonth = parseInt(monthStr, 10);
+    const birthDay = parseInt(dayStr, 10);
+    if (birthMonth !== month) continue;
+
+    const card = cardByCustomer.get(c.id);
+    const ageTurning =
+      Number.isFinite(birthYear) && birthYear > 1900
+        ? currentYear - birthYear
+        : null;
+
+    results.push({
+      customer_id: c.id,
+      customer_name: c.name,
+      customer_email: c.email,
+      customer_phone: c.phone,
+      birthday: c.birthday,
+      birthday_day: birthDay,
+      birthday_month: birthMonth,
+      age_turning: ageTurning,
+      has_active_card: Boolean(card),
+      card_number: card?.card_number ?? null,
+      marketing_consent: Boolean(c.marketing_consent),
+      sms_consent: Boolean(c.sms_consent),
+      total_visits: c.visits_count ?? 0,
+      total_spent_cents: c.total_spent_cents ?? 0,
+    });
+  }
+
+  /* Tri par jour du mois pour affichage chronologique */
+  results.sort((a, b) => a.birthday_day - b.birthday_day);
+  return results;
 }
 
 export function isDemoMode() {

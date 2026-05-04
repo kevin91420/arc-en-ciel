@@ -1,6 +1,9 @@
 /**
  * POST /api/loyalty/enroll — Inscription publique au programme fidélité
- * Body: { customer_name, customer_phone, customer_email? }
+ * Body: {
+ *   customer_name, customer_phone, customer_email?,
+ *   customer_birthday?, birthday_consent?, marketing_consent?, sms_consent?
+ * }
  * Returns: { card_number } pour redirect vers /fidelite/carte/[number]
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -22,6 +25,24 @@ export async function POST(req: NextRequest) {
   const customer_email = body.customer_email
     ? String(body.customer_email).trim()
     : undefined;
+
+  /* Sprint 7b QW#7 — anniversaire optionnel + consentements RGPD.
+   * Birthday format attendu : "YYYY-MM-DD". On valide la cohérence
+   * (≥ 1900, ≤ aujourd'hui). */
+  let customer_birthday: string | undefined;
+  if (body.customer_birthday) {
+    const raw = String(body.customer_birthday).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const date = new Date(`${raw}T12:00:00`);
+      const year = date.getFullYear();
+      if (!Number.isNaN(date.getTime()) && year >= 1900 && date <= new Date()) {
+        customer_birthday = raw;
+      }
+    }
+  }
+  const birthday_consent = Boolean(body.birthday_consent);
+  const marketing_consent = Boolean(body.marketing_consent);
+  const sms_consent = Boolean(body.sms_consent);
 
   if (customer_name.length < 2) {
     return NextResponse.json(
@@ -47,6 +68,10 @@ export async function POST(req: NextRequest) {
       customer_name,
       customer_phone,
       customer_email,
+      customer_birthday,
+      birthday_consent: customer_birthday ? birthday_consent : false,
+      marketing_consent,
+      sms_consent,
     });
 
     /* Only send welcome email for brand new cards (not existing ones) */

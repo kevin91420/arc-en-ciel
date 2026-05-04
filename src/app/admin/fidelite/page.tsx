@@ -113,6 +113,13 @@ export default function FidelitePage() {
             Scanner un QR
           </Link>
           <Link
+            href="/admin/fidelite/anniversaires"
+            className="inline-flex items-center gap-2 bg-gold/15 hover:bg-gold/25 border border-gold/40 text-brown font-semibold px-4 py-2.5 rounded-lg text-sm transition active:scale-95"
+          >
+            <span aria-hidden>🎂</span>
+            Anniversaires du mois
+          </Link>
+          <Link
             href="/admin/fidelite/config"
             className="inline-flex items-center gap-2 bg-white-warm hover:bg-cream border border-terracotta/30 text-brown font-semibold px-4 py-2.5 rounded-lg text-sm transition active:scale-95"
           >

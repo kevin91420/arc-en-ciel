@@ -1875,6 +1875,10 @@ function LoyaltySheet({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  /* Sprint 7b QW#7 — anniversaire + consentements RGPD */
+  const [birthday, setBirthday] = useState("");
+  const [birthdayConsent, setBirthdayConsent] = useState(true);
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [enrollState, setEnrollState] = useState<EnrollState>({ kind: "idle" });
 
   async function submit(e: React.FormEvent) {
@@ -1908,6 +1912,9 @@ function LoyaltySheet({
           customer_name: trimmedName,
           customer_phone: trimmedPhone,
           customer_email: trimmedEmail || undefined,
+          customer_birthday: birthday || undefined,
+          birthday_consent: Boolean(birthday) && birthdayConsent,
+          marketing_consent: marketingConsent,
         }),
       });
       const data = (await res.json()) as {
@@ -2067,6 +2074,56 @@ function LoyaltySheet({
                   />
                 </label>
 
+                {/* Sprint 7b QW#7 — Birthday + consents RGPD */}
+                <div className="rounded-xl bg-gold/10 border border-gold/30 p-3 space-y-3">
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold flex items-center gap-1.5">
+                      <span aria-hidden>🎂</span>
+                      Date de naissance (optionnel)
+                    </span>
+                    <input
+                      type="date"
+                      value={birthday}
+                      onChange={(e) => setBirthday(e.target.value)}
+                      max={new Date().toISOString().slice(0, 10)}
+                      className="w-full mt-1.5 px-4 py-3 bg-white-warm border border-terracotta/30 rounded-xl text-brown focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                    <span className="text-[11px] text-brown-light/80 mt-1.5 block leading-snug">
+                      Pour qu&apos;on pense à vous le jour J avec une petite
+                      attention 🎁
+                    </span>
+                  </label>
+
+                  {birthday && (
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={birthdayConsent}
+                        onChange={(e) => setBirthdayConsent(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded accent-brown"
+                      />
+                      <span className="text-[11px] text-brown-light leading-snug">
+                        J&apos;accepte de recevoir un message le jour de mon
+                        anniversaire.
+                      </span>
+                    </label>
+                  )}
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={marketingConsent}
+                      onChange={(e) => setMarketingConsent(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded accent-brown"
+                    />
+                    <span className="text-[11px] text-brown-light leading-snug">
+                      Je souhaite être informé(e) des nouveautés et offres
+                      spéciales (1-2 emails par mois max, désinscription en
+                      1 clic).
+                    </span>
+                  </label>
+                </div>
+
                 {enrollState.kind === "error" && (
                   <p className="text-xs text-red bg-red/10 px-3 py-2 rounded-lg text-center">
                     {enrollState.message}
@@ -2088,8 +2145,8 @@ function LoyaltySheet({
                   )}
                 </button>
                 <p className="text-[11px] text-brown-light/70 text-center pt-1">
-                  En rejoignant, vous acceptez qu&apos;on mémorise votre nom et
-                  téléphone pour gérer vos tampons. Rien d&apos;autre.
+                  Vos données sont utilisées uniquement pour gérer vos tampons
+                  fidélité, conformément au RGPD.
                 </p>
               </form>
             </>
