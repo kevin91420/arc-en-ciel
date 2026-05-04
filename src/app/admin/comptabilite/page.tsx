@@ -329,7 +329,73 @@ export default function ComptabilitePage() {
                 </span>
               </div>
             )}
+
+            {report.totals.discount_total_cents > 0 && (
+              <div className="mt-2 p-3 rounded-lg bg-gold/5 border border-gold/30 text-xs text-brown flex justify-between">
+                <span>
+                  🎁 Remises commerciales (
+                  {report.totals.discount_orders_count} commande
+                  {report.totals.discount_orders_count > 1 ? "s" : ""})
+                </span>
+                <span className="font-bold tabular-nums text-amber-700">
+                  −{formatCents(report.totals.discount_total_cents)}
+                </span>
+              </div>
+            )}
           </section>
+
+          {/* Remises par raison */}
+          {report.discounts_by_reason.length > 0 && (
+            <section className="mb-10">
+              <SectionTitle>Remises commerciales par raison</SectionTitle>
+              <div className="overflow-hidden rounded-xl border border-terracotta/20">
+                <table className="w-full text-sm">
+                  <thead className="bg-cream/50">
+                    <tr className="text-left">
+                      <th className="px-4 py-2.5 font-semibold text-brown">
+                        Raison
+                      </th>
+                      <th className="px-4 py-2.5 font-semibold text-brown text-right">
+                        Nombre
+                      </th>
+                      <th className="px-4 py-2.5 font-semibold text-brown text-right">
+                        Montant
+                      </th>
+                      <th className="px-4 py-2.5 font-semibold text-brown text-right">
+                        Part
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.discounts_by_reason.map((d) => (
+                      <tr
+                        key={d.reason}
+                        className="border-t border-terracotta/15"
+                      >
+                        <td className="px-4 py-2.5 text-brown">
+                          {prettyDiscountReason(d.reason)}
+                        </td>
+                        <td className="px-4 py-2.5 text-brown-light tabular-nums text-right">
+                          {d.count}
+                        </td>
+                        <td className="px-4 py-2.5 text-amber-700 font-bold tabular-nums text-right">
+                          −{formatCents(d.amount_cents)}
+                        </td>
+                        <td className="px-4 py-2.5 text-brown-light tabular-nums text-right">
+                          {(
+                            (d.amount_cents /
+                              report.totals.discount_total_cents) *
+                            100
+                          ).toFixed(1)}
+                          %
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           {/* Moyennes utiles */}
           {report.totals.active_days > 0 && (
@@ -684,4 +750,18 @@ function prettyMethod(m: string): string {
     other: "Autre",
   };
   return map[m] ?? m;
+}
+
+function prettyDiscountReason(r: string): string {
+  const map: Record<string, string> = {
+    fidelite: "⭐ Client fidèle",
+    invitation: "🎁 Invitation / VIP",
+    reclamation: "🥲 Réclamation",
+    erreur: "✋ Erreur maison",
+    happy_hour: "🍹 Happy hour / Promo",
+    partenariat: "🤝 Partenaire",
+    menu: "📋 Menu / Formule",
+    autre: "• Autre raison",
+  };
+  return map[r] ?? r;
 }

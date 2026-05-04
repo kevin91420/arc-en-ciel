@@ -74,7 +74,17 @@ export interface PeriodReport {
     /* Moyenne quotidienne sur les jours actifs (ne compte pas les jours sans CA). */
     avg_daily_revenue_cents: number;
     active_days: number;
+    /* Sprint 7b QW#8 — remises commerciales sur la période */
+    discount_total_cents: number;
+    discount_orders_count: number;
   };
+
+  /* Ventilation des remises par raison */
+  discounts_by_reason: Array<{
+    reason: string;
+    count: number;
+    amount_cents: number;
+  }>;
 
   /* Ventilations */
   by_method: Array<{
@@ -148,11 +158,14 @@ export async function getPeriodReport(
         cancelled_orders: 0,
         avg_daily_revenue_cents: 0,
         active_days: 0,
+        discount_total_cents: 0,
+        discount_orders_count: 0,
       },
       by_method: [],
       by_day: [],
       by_weekday: [],
       top_items: [],
+      discounts_by_reason: [],
     };
   }
 
@@ -187,6 +200,18 @@ export async function getPeriodReport(
         )
       : [];
 
+  /* Sprint 7b QW#8 — Remises commerciales sur la période. */
+  const discounts =
+    orderIds.length > 0
+      ? await sb<{
+          order_id: string;
+          reason: string;
+          amount_cents: number;
+        }[]>(
+          `order_discounts?select=order_id,reason,amount_cents&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})${tc}`
+        )
+      : [];
+
   /* ═══ TOTAUX ═══ */
   const orders_count = orders.length;
   const guests_count = orders.reduce((s, o) => s + (o.guest_count || 0), 0);
@@ -194,6 +219,30 @@ export async function getPeriodReport(
   const tax_cents = orders.reduce((s, o) => s + (o.tax_cents || 0), 0);
   const revenue_ht_cents = revenue_ttc_cents - tax_cents;
   const tip_cents = orders.reduce((s, o) => s + (o.tip_cents || 0), 0);
+  const discount_total_cents = discounts.reduce(
+    (s, d) => s + d.amount_cents,
+    0
+  );
+  const discount_orders_count = new Set(discounts.map((d) => d.order_id))
+    .size;
+
+  /* Ventilation par raison */
+  const discountReasonMap = new Map<
+    string,
+    { count: number; amount_cents: number }
+  >();
+  for (const d of discounts) {
+    const cur = discountReasonMap.get(d.reason) ?? {
+      count: 0,
+      amount_cents: 0,
+    };
+    cur.count += 1;
+    cur.amount_cents += d.amount_cents;
+    discountReasonMap.set(d.reason, cur);
+  }
+  const discounts_by_reason = [...discountReasonMap.entries()]
+    .map(([reason, v]) => ({ reason, ...v }))
+    .sort((a, b) => b.amount_cents - a.amount_cents);
 
   /* ═══ BY METHOD (utilise payments si dispo, sinon order.payment_method) ═══ */
   const methodMap = new Map<
@@ -318,11 +367,14 @@ export async function getPeriodReport(
       cancelled_orders: cancelled.length,
       avg_daily_revenue_cents,
       active_days,
+      discount_total_cents,
+      discount_orders_count,
     },
     by_method,
     by_day,
     by_weekday,
     top_items,
+    discounts_by_reason,
   };
 }
 

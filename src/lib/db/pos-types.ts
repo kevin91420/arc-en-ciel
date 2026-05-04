@@ -119,6 +119,9 @@ export interface Order {
   tax_cents: number;
   total_cents: number;
   tip_cents: number;
+  /** Sprint 7b QW#8 — total des remises appliquées sur cette commande
+   * (cache dénormalisé, recalculé par recomputeOrderTotals à chaque mut). */
+  discount_total_cents?: number;
   payment_method?: PaymentMethod | null;
   fired_at?: string | null;
   ready_at?: string | null;
@@ -186,6 +189,61 @@ export const CANCELLATION_REASONS: {
   { key: "gesture", label: "Geste commercial", icon: "🎁" },
   { key: "other", label: "Autre raison", icon: "•" },
 ];
+
+/* ── Discounts (Sprint 7b QW#8) ────────────────────────── */
+
+export type DiscountKind = "percentage" | "fixed";
+
+export type DiscountReason =
+  | "fidelite"
+  | "reclamation"
+  | "invitation"
+  | "happy_hour"
+  | "menu"
+  | "partenariat"
+  | "erreur"
+  | "autre";
+
+export interface OrderDiscount {
+  id: string;
+  order_id: string;
+  kind: DiscountKind;
+  /* value_pct ∈ [0, 100] si kind='percentage', null sinon */
+  value_pct?: number | null;
+  amount_cents: number;
+  reason: DiscountReason;
+  notes?: string | null;
+  applied_by_staff_id?: string | null;
+  created_at: string;
+}
+
+export interface CreateDiscountPayload {
+  kind: DiscountKind;
+  /* requis si kind='percentage' */
+  value_pct?: number;
+  /* requis si kind='fixed' */
+  amount_cents?: number;
+  reason: DiscountReason;
+  notes?: string;
+  applied_by_staff_id?: string;
+}
+
+export const DISCOUNT_REASONS: {
+  key: DiscountReason;
+  label: string;
+  icon: string;
+}[] = [
+  { key: "fidelite", label: "Client fidèle", icon: "⭐" },
+  { key: "invitation", label: "Invitation / VIP", icon: "🎁" },
+  { key: "reclamation", label: "Réclamation", icon: "🥲" },
+  { key: "erreur", label: "Erreur maison", icon: "✋" },
+  { key: "happy_hour", label: "Happy hour / Promo", icon: "🍹" },
+  { key: "partenariat", label: "Partenaire", icon: "🤝" },
+  { key: "menu", label: "Menu / Formule", icon: "📋" },
+  { key: "autre", label: "Autre raison", icon: "•" },
+];
+
+/* Étend Order avec le total des remises (cache dénormalisé). */
 
 /* ── Cash sessions ─────────────────────────────────────── */
 

@@ -34,7 +34,14 @@ interface ZReport {
     avg_per_guest_cents: number;
     cancelled_orders: number;
     refund_total_cents: number;
+    discount_total_cents?: number;
+    discount_orders_count?: number;
   };
+  discounts_by_reason?: Array<{
+    reason: string;
+    count: number;
+    amount_cents: number;
+  }>;
   by_method: Array<{ method: string; amount_cents: number; count: number }>;
   by_staff: Array<{
     staff_id: string;
@@ -68,6 +75,17 @@ interface ZReport {
     cancelled_at: string;
   }>;
 }
+
+const DISCOUNT_REASON_LABELS: Record<string, string> = {
+  fidelite: "Client fidèle",
+  reclamation: "Réclamation",
+  invitation: "Invitation / VIP",
+  happy_hour: "Happy hour / Promo",
+  menu: "Menu / Formule",
+  partenariat: "Partenaire",
+  erreur: "Erreur maison",
+  autre: "Autre raison",
+};
 
 const METHOD_LABELS: Record<string, string> = {
   card: "Carte bancaire",
@@ -290,7 +308,69 @@ export default function ZReportPage() {
                 </span>
               </p>
             )}
+            {(report.totals.discount_total_cents ?? 0) > 0 && (
+              <p className="mt-1 text-sm text-brown-light text-right">
+                Remises commerciales :{" "}
+                <span className="font-bold text-amber-700 tabular-nums">
+                  −{formatCents(report.totals.discount_total_cents ?? 0)}
+                </span>
+                <span className="text-[11px] text-brown-light/70 ml-2">
+                  ({report.totals.discount_orders_count ?? 0} commande
+                  {(report.totals.discount_orders_count ?? 0) > 1 ? "s" : ""})
+                </span>
+              </p>
+            )}
           </section>
+
+          {/* ── Remises par raison ── */}
+          {report.discounts_by_reason && report.discounts_by_reason.length > 0 && (
+            <section className="mt-6 pt-6 border-t border-brown/10">
+              <h3 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown mb-3">
+                Remises commerciales
+              </h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+                    <th className="py-1 text-left">Raison</th>
+                    <th className="py-1 text-right">Nombre</th>
+                    <th className="py-1 text-right">Montant total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.discounts_by_reason.map((d) => (
+                    <tr
+                      key={d.reason}
+                      className="border-b border-brown/5 last:border-0"
+                    >
+                      <td className="py-1.5 text-brown capitalize">
+                        {DISCOUNT_REASON_LABELS[d.reason] ?? d.reason}
+                      </td>
+                      <td className="py-1.5 text-right text-brown tabular-nums">
+                        {d.count}
+                      </td>
+                      <td className="py-1.5 text-right text-amber-700 font-bold tabular-nums">
+                        −{formatCents(d.amount_cents)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-brown/30">
+                    <td className="py-2 text-brown font-bold">Total</td>
+                    <td className="py-2 text-right text-brown font-bold tabular-nums">
+                      {report.discounts_by_reason.reduce(
+                        (s, d) => s + d.count,
+                        0
+                      )}
+                    </td>
+                    <td className="py-2 text-right text-amber-700 font-bold tabular-nums">
+                      −{formatCents(report.totals.discount_total_cents ?? 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </section>
+          )}
 
           {/* ── Méthodes de paiement ── */}
           <section className="mt-6 pt-6 border-t border-brown/10">

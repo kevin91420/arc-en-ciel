@@ -20,7 +20,13 @@ import type {
   PaymentMethod,
   RefundMethod,
 } from "@/lib/db/pos-types";
-import { CANCELLATION_REASONS } from "@/lib/db/pos-types";
+import { CANCELLATION_REASONS, DISCOUNT_REASONS } from "@/lib/db/pos-types";
+import type {
+  CreateDiscountPayload,
+  DiscountKind,
+  DiscountReason,
+  OrderDiscount,
+} from "@/lib/db/pos-types";
 import type { VoucherRow } from "@/lib/db/vouchers-types";
 
 /* Vue publique du voucher renvoyée par /api/staff/vouchers/lookup
@@ -88,6 +94,10 @@ export default function AdditionPage({ params }: PageProps) {
     itemIds: string[];
   } | null>(null);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  /* Sprint 7b QW#8 — remises commerciales */
+  const [discounts, setDiscounts] = useState<OrderDiscount[]>([]);
+  const [discountModalOpen, setDiscountModalOpen] = useState(false);
+  const [discountBusy, setDiscountBusy] = useState(false);
   const branding = useRestaurantBranding();
   const addressLines = formatAddressLines(branding);
   const contactLine = formatContactLine(branding);
@@ -100,26 +110,93 @@ export default function AdditionPage({ params }: PageProps) {
     .filter(Boolean)
     .join(" · ");
 
-  /** Fetch order + payments together so the addition + sums are coherent. */
+  /** Fetch order + payments + discounts. Tout est rechargé en un seul tick
+   * pour garantir la cohérence visuelle des totaux. */
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/api/staff/orders/${orderId}/payments`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("Commande introuvable");
-      const data = (await res.json()) as {
+      const [paymentRes, discountRes] = await Promise.all([
+        fetch(`/api/staff/orders/${orderId}/payments`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`/api/staff/orders/${orderId}/discounts`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ]);
+      if (!paymentRes.ok) throw new Error("Commande introuvable");
+      const data = (await paymentRes.json()) as {
         order: OrderWithItems;
         payments: OrderPayment[];
       };
       setOrder(data.order);
       setPayments(data.payments ?? []);
+
+      if (discountRes.ok) {
+        const d = (await discountRes.json()) as {
+          discounts: OrderDiscount[];
+        };
+        setDiscounts(d.discounts ?? []);
+      }
       return data;
     } catch (e) {
       setErr((e as Error).message);
       return null;
     }
   }, [orderId]);
+
+  /* Apply discount */
+  const applyDiscount = useCallback(
+    async (payload: CreateDiscountPayload) => {
+      setDiscountBusy(true);
+      try {
+        const res = await fetch(
+          `/api/staff/orders/${orderId}/discounts`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(d.error || `HTTP ${res.status}`);
+        }
+        await refresh();
+        setDiscountModalOpen(false);
+      } catch (e) {
+        alert((e as Error).message);
+      } finally {
+        setDiscountBusy(false);
+      }
+    },
+    [orderId, refresh]
+  );
+
+  /* Remove discount */
+  const removeDiscount = useCallback(
+    async (discountId: string) => {
+      if (!confirm("Retirer cette remise ?")) return;
+      try {
+        const res = await fetch(
+          `/api/staff/orders/${orderId}/discounts/${discountId}`,
+          {
+            method: "DELETE",
+            credentials: "include",
+          }
+        );
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(d.error || `HTTP ${res.status}`);
+        }
+        await refresh();
+      } catch (e) {
+        alert((e as Error).message);
+      }
+    },
+    [orderId, refresh]
+  );
 
   useEffect(() => {
     if (!orderId) return;
@@ -438,6 +515,17 @@ export default function AdditionPage({ params }: PageProps) {
             </button>
           )}
 
+          {order.status !== "cancelled" && order.status !== "paid" && (
+            <button
+              type="button"
+              onClick={() => setDiscountModalOpen(true)}
+              className="h-10 px-3 rounded-lg text-xs font-semibold text-brown bg-gold/15 hover:bg-gold/25 border border-gold/40 transition inline-flex items-center gap-1.5"
+              title="Appliquer une remise commerciale"
+            >
+              🎁 Remise
+            </button>
+          )}
+
           {order.status !== "cancelled" && (
             <button
               type="button"
@@ -450,6 +538,67 @@ export default function AdditionPage({ params }: PageProps) {
           )}
         </div>
       </div>
+
+      {/* Bandeau remises actives — visible si au moins une remise */}
+      {discounts.length > 0 && (
+        <div className="no-print max-w-3xl mx-auto px-4 md:px-0 mt-4">
+          <div className="rounded-2xl bg-gold/10 border border-gold/30 p-4">
+            <div className="flex items-baseline justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-brown-light font-bold">
+                🎁 Remise{discounts.length > 1 ? "s" : ""} appliquée
+                {discounts.length > 1 ? "s" : ""}
+              </p>
+              <p className="font-[family-name:var(--font-display)] text-xl font-bold text-brown tabular-nums">
+                −
+                {formatCents(
+                  discounts.reduce((s, d) => s + d.amount_cents, 0)
+                )}
+              </p>
+            </div>
+            <ul className="space-y-1.5">
+              {discounts.map((d) => {
+                const reasonMeta = DISCOUNT_REASONS.find(
+                  (r) => r.key === d.reason
+                );
+                return (
+                  <li
+                    key={d.id}
+                    className="flex items-center gap-2 text-sm text-brown"
+                  >
+                    <span aria-hidden>{reasonMeta?.icon ?? "•"}</span>
+                    <span className="flex-1 truncate">
+                      {reasonMeta?.label ?? d.reason}
+                      {d.kind === "percentage" && d.value_pct != null && (
+                        <span className="text-brown-light/80 ml-1">
+                          (−{d.value_pct}%)
+                        </span>
+                      )}
+                      {d.notes && (
+                        <span className="text-brown-light/70 italic ml-2">
+                          « {d.notes} »
+                        </span>
+                      )}
+                    </span>
+                    <span className="tabular-nums font-semibold">
+                      −{formatCents(d.amount_cents)}
+                    </span>
+                    {order.status !== "paid" && order.status !== "cancelled" && (
+                      <button
+                        type="button"
+                        onClick={() => removeDiscount(d.id)}
+                        className="text-[11px] text-brown-light hover:text-red transition px-1"
+                        title="Retirer cette remise"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Payment summary banner — visible in all modes when payments exist. */}
       {(payments.length > 0 || fullyPaid) && (
@@ -846,6 +995,25 @@ export default function AdditionPage({ params }: PageProps) {
             busy={paymentBusy}
             onCancel={() => setCancelModalOpen(false)}
             onConfirm={cancelOrder}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ─── Discount modal ── */}
+      <AnimatePresence>
+        {discountModalOpen && (
+          <DiscountModal
+            currentSubtotal={
+              /* On veut le subtotal AVANT remise pour que l'utilisateur voie
+               * l'effet de sa remise depuis un point de référence stable.
+               * On inclut donc les remises déjà appliquées dans le subtotal. */
+              order.subtotal_cents +
+              discounts.reduce((s, d) => s + d.amount_cents, 0)
+            }
+            currentTotal={order.total_cents}
+            busy={discountBusy}
+            onCancel={() => setDiscountModalOpen(false)}
+            onConfirm={applyDiscount}
           />
         )}
       </AnimatePresence>
@@ -1619,6 +1787,325 @@ function CancelOrderModal({
               className="flex-[2] h-10 rounded-lg bg-red text-cream text-sm font-bold hover:bg-red-dark transition disabled:opacity-50 active:scale-95 inline-flex items-center justify-center gap-1.5"
             >
               ✋ Confirmer l&apos;annulation
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   DISCOUNT MODAL — Sprint 7b QW#8
+   Applique une remise commerciale à la commande (pourcentage ou fixe).
+   Preview live de l'économie. Audit auto via API.
+   ════════════════════════════════════════════════════════════ */
+const PCT_PRESETS = [5, 10, 15, 20, 50];
+const FIXED_PRESETS_CENTS = [200, 500, 1000, 2000, 5000];
+
+function DiscountModal({
+  currentSubtotal,
+  currentTotal,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  currentSubtotal: number;
+  currentTotal: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (payload: CreateDiscountPayload) => void;
+}) {
+  const [kind, setKind] = useState<DiscountKind>("percentage");
+  const [pctValue, setPctValue] = useState<string>("10");
+  const [fixedValue, setFixedValue] = useState<string>("");
+  const [reason, setReason] = useState<DiscountReason>("fidelite");
+  const [notes, setNotes] = useState<string>("");
+
+  /* Computed amount */
+  const computedDiscount = useMemo(() => {
+    if (kind === "percentage") {
+      const pct = parseFloat(pctValue.replace(",", "."));
+      if (!Number.isFinite(pct) || pct <= 0 || pct > 100) return 0;
+      return Math.round((currentSubtotal * pct) / 100);
+    }
+    const eur = parseFloat(fixedValue.replace(",", "."));
+    if (!Number.isFinite(eur) || eur <= 0) return 0;
+    return Math.round(eur * 100);
+  }, [kind, pctValue, fixedValue, currentSubtotal]);
+
+  const cappedDiscount = Math.min(computedDiscount, currentSubtotal);
+  const subtotalAfter = currentSubtotal - cappedDiscount;
+  const taxAfter = Math.round(subtotalAfter * 0.1);
+  const totalAfter = subtotalAfter + taxAfter;
+
+  const valid = computedDiscount > 0 && computedDiscount <= currentSubtotal;
+
+  function submit() {
+    if (!valid || busy) return;
+    if (kind === "percentage") {
+      const pct = parseFloat(pctValue.replace(",", "."));
+      onConfirm({ kind: "percentage", value_pct: pct, reason, notes });
+    } else {
+      onConfirm({
+        kind: "fixed",
+        amount_cents: Math.round(
+          parseFloat(fixedValue.replace(",", ".")) * 100
+        ),
+        reason,
+        notes,
+      });
+    }
+  }
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onCancel}
+        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.96 }}
+        transition={{ type: "spring", damping: 25, stiffness: 280 }}
+        className="fixed inset-x-4 top-4 bottom-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-lg sm:w-[calc(100vw-2rem)] sm:max-h-[92vh] z-50 flex"
+        role="dialog"
+        aria-modal
+      >
+        <div className="bg-white-warm rounded-3xl shadow-2xl border border-terracotta/30 w-full flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="px-6 py-5 border-b border-terracotta/20 flex-shrink-0">
+            <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown text-center">
+              🎁 Appliquer une remise
+            </h2>
+            <p className="text-[11px] text-brown-light/80 text-center mt-1">
+              Geste commercial sur le total. Tracé pour la compta.
+            </p>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
+            {/* Kind toggle */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                Type de remise
+              </p>
+              <div className="flex bg-cream rounded-lg p-1 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setKind("percentage")}
+                  className={[
+                    "flex-1 py-2 rounded-md text-sm font-bold transition",
+                    kind === "percentage"
+                      ? "bg-white-warm text-brown shadow-sm"
+                      : "text-brown-light hover:text-brown",
+                  ].join(" ")}
+                >
+                  Pourcentage (%)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKind("fixed")}
+                  className={[
+                    "flex-1 py-2 rounded-md text-sm font-bold transition",
+                    kind === "fixed"
+                      ? "bg-white-warm text-brown shadow-sm"
+                      : "text-brown-light hover:text-brown",
+                  ].join(" ")}
+                >
+                  Montant fixe (€)
+                </button>
+              </div>
+            </div>
+
+            {/* Value */}
+            {kind === "percentage" ? (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                  Pourcentage
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {PCT_PRESETS.map((p) => {
+                    const active = pctValue === String(p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPctValue(String(p))}
+                        className={[
+                          "h-10 px-4 rounded-lg text-sm font-bold border-2 transition active:scale-95",
+                          active
+                            ? "bg-brown text-cream border-brown"
+                            : "bg-cream text-brown border-terracotta/30 hover:border-gold",
+                        ].join(" ")}
+                      >
+                        −{p}%
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-stretch">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={pctValue}
+                    onChange={(e) => setPctValue(e.target.value)}
+                    placeholder="10"
+                    className="flex-1 px-3 py-3 rounded-l-lg bg-white-warm border border-terracotta/30 text-brown text-2xl font-bold text-center tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                  <span className="inline-flex items-center px-4 rounded-r-lg bg-cream border border-l-0 border-terracotta/30 text-brown text-xl font-bold">
+                    %
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                  Montant fixe
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {FIXED_PRESETS_CENTS.map((c) => {
+                    const eur = (c / 100).toFixed(2);
+                    const active = fixedValue === eur || fixedValue === String(c / 100);
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setFixedValue(eur)}
+                        className={[
+                          "h-10 px-3 rounded-lg text-sm font-bold border-2 transition active:scale-95 tabular-nums",
+                          active
+                            ? "bg-brown text-cream border-brown"
+                            : "bg-cream text-brown border-terracotta/30 hover:border-gold",
+                        ].join(" ")}
+                      >
+                        −{formatCents(c)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-stretch">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={fixedValue}
+                    onChange={(e) => setFixedValue(e.target.value)}
+                    placeholder="0,00"
+                    className="flex-1 px-3 py-3 rounded-l-lg bg-white-warm border border-terracotta/30 text-brown text-2xl font-bold text-center tabular-nums focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                  <span className="inline-flex items-center px-4 rounded-r-lg bg-cream border border-l-0 border-terracotta/30 text-brown text-xl font-bold">
+                    €
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Reason */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold mb-2">
+                Raison commerciale
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {DISCOUNT_REASONS.map((r) => {
+                  const active = reason === r.key;
+                  return (
+                    <button
+                      key={r.key}
+                      type="button"
+                      onClick={() => setReason(r.key)}
+                      className={[
+                        "h-10 rounded-lg text-xs font-semibold border-2 transition active:scale-95 inline-flex items-center justify-center gap-1.5",
+                        active
+                          ? "bg-gold/15 text-brown border-gold"
+                          : "bg-cream text-brown-light border-terracotta/30 hover:border-gold/50",
+                      ].join(" ")}
+                    >
+                      <span aria-hidden>{r.icon}</span>
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-brown-light font-bold">
+                Note (optionnel)
+              </span>
+              <input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Ex: client habitué, plat servi froid..."
+                maxLength={200}
+                className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold"
+              />
+            </label>
+
+            {/* Live preview */}
+            <div className="rounded-xl bg-gold/10 border border-gold/40 p-4">
+              <p className="text-[10px] uppercase tracking-wider text-brown-light font-bold mb-2">
+                Aperçu
+              </p>
+              <div className="space-y-1 text-sm">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-brown-light">Sous-total avant</span>
+                  <span className="tabular-nums text-brown">
+                    {formatCents(currentSubtotal)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-amber-700 font-bold">Remise</span>
+                  <span className="tabular-nums text-amber-800 font-bold">
+                    −{formatCents(cappedDiscount)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between pt-2 border-t border-brown/20">
+                  <span className="text-brown font-bold">
+                    Total après (TTC)
+                  </span>
+                  <span className="font-[family-name:var(--font-display)] text-2xl font-black text-brown tabular-nums">
+                    {formatCents(totalAfter)}
+                  </span>
+                </div>
+                {currentTotal > 0 && (
+                  <p className="text-[10px] text-brown-light/70 italic">
+                    Économie client : {formatCents(currentTotal - totalAfter)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex-shrink-0 px-6 pb-5 pt-3 border-t border-terracotta/20 flex items-center gap-2 bg-white-warm">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition border border-terracotta/30"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!valid || busy}
+              className={[
+                "flex-1 h-11 rounded-lg text-sm font-bold transition active:scale-[0.98]",
+                !valid || busy
+                  ? "bg-brown-light/40 text-cream cursor-not-allowed"
+                  : "bg-brown text-cream hover:bg-brown-light shadow-md",
+              ].join(" ")}
+            >
+              {busy
+                ? "Application…"
+                : valid
+                  ? `Appliquer −${formatCents(cappedDiscount)}`
+                  : "Saisis un montant valide"}
             </button>
           </div>
         </div>

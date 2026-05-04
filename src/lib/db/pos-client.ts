@@ -835,6 +835,9 @@ export interface ZReport {
     avg_per_guest_cents: number;
     cancelled_orders: number;
     refund_total_cents: number;
+    /* Sprint 7b QW#8 — total des remises commerciales du jour */
+    discount_total_cents: number;
+    discount_orders_count: number;
   };
   by_method: Array<{
     method: string;
@@ -867,6 +870,12 @@ export interface ZReport {
     refund_amount_cents: number;
     cancelled_at: string;
   }>;
+  /* Sprint 7b QW#8 — ventilation des remises par raison */
+  discounts_by_reason: Array<{
+    reason: string;
+    count: number;
+    amount_cents: number;
+  }>;
 }
 
 export async function getZReport(
@@ -889,6 +898,8 @@ export async function getZReport(
         avg_per_guest_cents: 0,
         cancelled_orders: 0,
         refund_total_cents: 0,
+        discount_total_cents: 0,
+        discount_orders_count: 0,
       },
       by_method: [],
       by_staff: [],
@@ -896,6 +907,7 @@ export async function getZReport(
       by_hour: [],
       cash_sessions: [],
       cancellations: [],
+      discounts_by_reason: [],
     };
   }
   const tid = await resolveTenantId(tenantId);
@@ -949,6 +961,18 @@ export async function getZReport(
 
   const cashSessions = await listCashSessions(isoDate, tid);
 
+  /* Sprint 7b QW#8 — Charge les remises appliquées aux orders du jour. */
+  const discounts =
+    orderIds.length > 0
+      ? await sb<{
+          order_id: string;
+          reason: string;
+          amount_cents: number;
+        }[]>(
+          `order_discounts?select=order_id,reason,amount_cents&order_id=in.(${orderIds.map((i) => `"${i}"`).join(",")})${tc}`
+        )
+      : [];
+
   /* ── Totals ─────────────────────────────── */
   const orders_count = orders.length;
   const guests_count = orders.reduce((s, o) => s + (o.guest_count || 0), 0);
@@ -956,6 +980,30 @@ export async function getZReport(
   const tax_cents = orders.reduce((s, o) => s + (o.tax_cents || 0), 0);
   const revenue_ht_cents = revenue_ttc_cents - tax_cents;
   const tip_cents = orders.reduce((s, o) => s + (o.tip_cents || 0), 0);
+  const discount_total_cents = discounts.reduce(
+    (s, d) => s + d.amount_cents,
+    0
+  );
+  const discount_orders_count = new Set(discounts.map((d) => d.order_id))
+    .size;
+
+  /* Ventilation des remises par raison */
+  const discountReasonMap = new Map<
+    string,
+    { count: number; amount_cents: number }
+  >();
+  for (const d of discounts) {
+    const cur = discountReasonMap.get(d.reason) ?? {
+      count: 0,
+      amount_cents: 0,
+    };
+    cur.count += 1;
+    cur.amount_cents += d.amount_cents;
+    discountReasonMap.set(d.reason, cur);
+  }
+  const discounts_by_reason = [...discountReasonMap.entries()]
+    .map(([reason, v]) => ({ reason, ...v }))
+    .sort((a, b) => b.amount_cents - a.amount_cents);
 
   const methodMap = new Map<string, { amount_cents: number; count: number }>();
   if (payments.length > 0) {
@@ -1061,6 +1109,8 @@ export async function getZReport(
         (s, c) => s + (c.refund_amount_cents || 0),
         0
       ),
+      discount_total_cents,
+      discount_orders_count,
     },
     by_method,
     by_staff,
@@ -1077,6 +1127,7 @@ export async function getZReport(
         cancelled_at: c.cancelled_at,
       };
     }),
+    discounts_by_reason,
   };
 }
 
@@ -1147,25 +1198,184 @@ export async function listPaidOrdersForDay(
   });
 }
 
+/**
+ * Recalcule les totaux d'une commande à partir des order_items + des remises.
+ *
+ * Logique TVA française restauration (10%) avec remises commerciales :
+ *   subtotal_brut    = sum(item.price × item.quantity) [non annulés]
+ *   discount_total   = sum(discount.amount_cents) [recalculé pour les pct]
+ *   subtotal_net     = subtotal_brut - discount_total      (≥ 0)
+ *   tax              = round(subtotal_net × 0.10)          [TVA réduite]
+ *   total            = subtotal_net + tax
+ *
+ * Pour les remises de type 'percentage', amount_cents est recalculé à
+ * partir du subtotal brut courant (pour suivre les changements de la
+ * commande). Les remises 'fixed' restent intangibles.
+ */
 async function recomputeOrderTotals(orderId: string, tenantId: string) {
   if (!USE_SUPABASE) return;
+  const tc = tenantClause(tenantId);
+
+  /* 1. Subtotal brut depuis les items non annulés */
   const items = await sb<OrderItem[]>(
-    `order_items?select=price_cents,quantity,status&order_id=eq.${orderId}${tenantClause(tenantId)}`
+    `order_items?select=price_cents,quantity,status&order_id=eq.${orderId}${tc}`
   );
-  const subtotal = items
+  const subtotalBrut = items
     .filter((i) => i.status !== "cancelled")
     .reduce((sum, i) => sum + i.price_cents * i.quantity, 0);
-  /* TVA française restauration : 10% (boissons alcoolisées 20% — simplifié ici) */
-  const tax = Math.round(subtotal * 0.1);
-  const total = subtotal + tax;
-  await sb(`orders?id=eq.${orderId}${tenantClause(tenantId)}`, {
+
+  /* 2. Charge les remises actives + recalcule les pct */
+  const discounts = await sb<{
+    id: string;
+    kind: "percentage" | "fixed";
+    value_pct: number | null;
+    amount_cents: number;
+  }[]>(
+    `order_discounts?select=id,kind,value_pct,amount_cents&order_id=eq.${orderId}${tc}`
+  );
+
+  let discountTotal = 0;
+  for (const d of discounts) {
+    if (d.kind === "percentage" && d.value_pct != null) {
+      const recomputed = Math.round((subtotalBrut * d.value_pct) / 100);
+      discountTotal += recomputed;
+      /* Met à jour amount_cents si différent (pour reporting cohérent) */
+      if (recomputed !== d.amount_cents) {
+        await sb(`order_discounts?id=eq.${d.id}${tc}`, {
+          method: "PATCH",
+          body: JSON.stringify({ amount_cents: recomputed }),
+        }).catch(() => null);
+      }
+    } else {
+      discountTotal += d.amount_cents;
+    }
+  }
+
+  /* 3. Cap : la remise ne peut pas dépasser le subtotal */
+  discountTotal = Math.min(discountTotal, subtotalBrut);
+
+  const subtotalNet = Math.max(0, subtotalBrut - discountTotal);
+  const tax = Math.round(subtotalNet * 0.1);
+  const total = subtotalNet + tax;
+
+  await sb(`orders?id=eq.${orderId}${tc}`, {
     method: "PATCH",
     body: JSON.stringify({
-      subtotal_cents: subtotal,
+      subtotal_cents: subtotalNet, // subtotal HT après remise (cohérent avec tax_cents)
       tax_cents: tax,
       total_cents: total,
+      discount_total_cents: discountTotal,
     }),
   });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ORDER DISCOUNTS — Sprint 7b QW#8
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * Ajoute une remise à une commande (geste commercial en service).
+ * Recalcule automatiquement les totaux après ajout.
+ *
+ * @param orderId  — UUID de la commande
+ * @param payload  — type (pct/fixed) + valeur + raison + note + staff
+ */
+export async function addOrderDiscount(
+  orderId: string,
+  payload: import("./pos-types").CreateDiscountPayload,
+  tenantId?: string
+): Promise<import("./pos-types").OrderDiscount> {
+  if (!USE_SUPABASE) throw new Error("POS requires Supabase");
+  const tid = await resolveTenantId(tenantId);
+
+  /* Validation côté serveur */
+  if (payload.kind === "percentage") {
+    const pct = Number(payload.value_pct);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+      throw new Error("Pourcentage invalide (0 < pct ≤ 100)");
+    }
+  } else if (payload.kind === "fixed") {
+    const cents = Number(payload.amount_cents);
+    if (!Number.isFinite(cents) || cents <= 0 || cents > 1_000_000) {
+      throw new Error("Montant invalide");
+    }
+  }
+
+  /* Calcule l'amount_cents initial à partir du subtotal courant */
+  const [order] = await sb<Order[]>(
+    `orders?select=subtotal_cents&id=eq.${orderId}${tenantClause(tid)}&limit=1`
+  );
+  if (!order) throw new Error("Commande introuvable");
+
+  let initialAmount: number;
+  if (payload.kind === "percentage" && payload.value_pct != null) {
+    initialAmount = Math.round((order.subtotal_cents * payload.value_pct) / 100);
+  } else {
+    initialAmount = Math.round(payload.amount_cents ?? 0);
+  }
+
+  /* Insère la remise */
+  const [created] = await sb<import("./pos-types").OrderDiscount[]>(
+    "order_discounts",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        restaurant_id: tid,
+        order_id: orderId,
+        kind: payload.kind,
+        value_pct: payload.kind === "percentage" ? payload.value_pct : null,
+        amount_cents: initialAmount,
+        reason: payload.reason,
+        notes: payload.notes ?? null,
+        applied_by_staff_id: payload.applied_by_staff_id ?? null,
+      }),
+    }
+  );
+
+  /* Recalcule les totaux pour appliquer la remise */
+  await recomputeOrderTotals(orderId, tid);
+
+  return created;
+}
+
+/**
+ * Retire une remise d'une commande. Recalcule les totaux.
+ */
+export async function removeOrderDiscount(
+  discountId: string,
+  tenantId?: string
+): Promise<{ orderId: string } | null> {
+  if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
+
+  /* Récupère l'order_id avant suppression pour pouvoir recompute */
+  const [discount] = await sb<{ order_id: string }[]>(
+    `order_discounts?select=order_id&id=eq.${discountId}${tc}&limit=1`
+  );
+  if (!discount) return null;
+
+  await sb(`order_discounts?id=eq.${discountId}${tc}`, {
+    method: "DELETE",
+  });
+
+  await recomputeOrderTotals(discount.order_id, tid);
+
+  return { orderId: discount.order_id };
+}
+
+/**
+ * Liste les remises actives sur une commande.
+ */
+export async function listDiscountsForOrder(
+  orderId: string,
+  tenantId?: string
+): Promise<import("./pos-types").OrderDiscount[]> {
+  if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
+  return sb<import("./pos-types").OrderDiscount[]>(
+    `order_discounts?select=*&order_id=eq.${orderId}${tenantClause(tid)}&order=created_at.asc`
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════
