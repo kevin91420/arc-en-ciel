@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 import { formatFrenchDate, todayISO } from "./_lib/format";
 import { useRestaurantBranding } from "@/lib/hooks/useRestaurantBranding";
 import SoftwareFooter from "./_components/SoftwareFooter";
+import PhoneBusyToggle from "./_components/PhoneBusyToggle";
 
 /** Returns today's formatted date on the client, "" during SSR (avoids hydration mismatch). */
 function useTodayLabel(): string {
@@ -188,6 +189,22 @@ const NAV: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
         <path d="M5 4h11l3 3v13H5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
         <path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    href: "/admin/telephone",
+    label: "Téléphone IA",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path
+          d="M3 5a2 2 0 012-2h2.5l1.5 5L7 10a11 11 0 005 5l2-2 5 1.5V17a2 2 0 01-2 2A16 16 0 013 5z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="18" cy="6" r="2.5" fill="currentColor" />
       </svg>
     ),
   },
@@ -420,6 +437,7 @@ export default function AdminLayout({
             <p className="text-xs text-brown-light capitalize mt-0.5">{today}</p>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <PhoneBusyToggle />
             {isDemo && (
               <span className="hidden sm:inline-block text-[10px] tracking-[0.18em] px-2 py-1 rounded bg-gold/15 text-gold-dark font-bold" style={{ color: "#8a6e22" }}>
                 DEMO

@@ -170,6 +170,10 @@ export function proxy(request: NextRequest) {
   // Has its own IP rate limiting inside the route handler.
   if (pathname.startsWith("/api/m/")) return passThrough();
 
+  /* Sprint 7b QW#10 — Vapi.ai webhooks (téléphonie IA). Sécurisé par
+   * HMAC signature dans chaque route, pas besoin de cookie auth. */
+  if (pathname.startsWith("/api/telephony/vapi/")) return passThrough();
+
   /* ─── Cookie lookups ──────────────────────────────────── */
   const adminCookie = request.cookies.get(ADMIN_COOKIE)?.value;
   const adminAuthed =
