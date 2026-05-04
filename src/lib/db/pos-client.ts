@@ -246,6 +246,359 @@ export async function deactivateStaff(
 }
 
 /* ═══════════════════════════════════════════════════════════
+   STAFF STATS — Sprint 7b QW#11 — Stats individuelles par serveur
+   ═══════════════════════════════════════════════════════════ */
+
+export type StaffStatsPeriod = "day" | "week" | "month" | "year";
+
+export interface StaffStatsResult {
+  staff_id: string;
+  period: StaffStatsPeriod;
+  period_label: string;          // "Aujourd'hui", "Cette semaine", "Mai 2026", "2026"
+  start_iso: string;
+  end_iso: string;
+
+  /* Performances */
+  orders_count: number;
+  guests_count: number;
+  revenue_ttc_cents: number;
+  revenue_ht_cents: number;
+  tip_cents: number;
+  tip_pct: number;               // tips / revenue_ttc × 100
+  avg_ticket_cents: number;
+  avg_per_guest_cents: number;
+  cancelled_orders: number;
+  discount_total_cents: number;
+
+  /* Top items vendus PAR ce staff */
+  top_items: Array<{
+    menu_item_id: string;
+    menu_item_name: string;
+    quantity: number;
+    revenue_cents: number;
+  }>;
+
+  /* Évolution journalière (utile pour graphique sur period=month) */
+  by_day: Array<{
+    date: string;                // YYYY-MM-DD
+    orders: number;
+    revenue_cents: number;
+  }>;
+
+  /* Comparaison avec l'équipe (rang sur le CA) */
+  rank_in_team: number | null;   // 1 = top, null si non applicable
+  team_size: number;
+  team_avg_revenue_cents: number;
+}
+
+/**
+ * Calcule les bornes ISO d'une période depuis une date de référence.
+ */
+function periodBounds(
+  period: StaffStatsPeriod,
+  reference: Date = new Date()
+): { startISO: string; endISO: string; label: string } {
+  const ref = new Date(reference);
+  switch (period) {
+    case "day": {
+      const start = new Date(ref);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      return {
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        label: ref.toLocaleDateString("fr-FR", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        }),
+      };
+    }
+    case "week": {
+      /* Semaine FR : lundi → dimanche inclus */
+      const start = new Date(ref);
+      start.setHours(0, 0, 0, 0);
+      const dow = (start.getDay() + 6) % 7; // 0 = lundi
+      start.setDate(start.getDate() - dow);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 7);
+      return {
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        label: `Sem du ${start.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`,
+      };
+    }
+    case "month": {
+      const start = new Date(ref.getFullYear(), ref.getMonth(), 1);
+      const end = new Date(ref.getFullYear(), ref.getMonth() + 1, 1);
+      const monthLabel = start.toLocaleDateString("fr-FR", {
+        month: "long",
+        year: "numeric",
+      });
+      return {
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        label: monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1),
+      };
+    }
+    case "year": {
+      const start = new Date(ref.getFullYear(), 0, 1);
+      const end = new Date(ref.getFullYear() + 1, 0, 1);
+      return {
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        label: String(ref.getFullYear()),
+      };
+    }
+  }
+}
+
+/**
+ * Calcule les stats individuelles d'un staff pour une période donnée.
+ * Inclut un classement vs l'équipe pour gamifier le board manager.
+ */
+export async function getStaffStats(
+  staffId: string,
+  period: StaffStatsPeriod,
+  tenantId?: string
+): Promise<StaffStatsResult> {
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
+  const { startISO, endISO, label } = periodBounds(period);
+
+  if (!USE_SUPABASE) {
+    return emptyStaffStats(staffId, period, label, startISO, endISO);
+  }
+
+  /* 1. Toutes les commandes payées de la période — pour TOUS les staff
+   * (on veut calculer le rang). On filtrera par staffId après. */
+  const allOrders = await sb<Order[]>(
+    `orders?select=id,staff_id,total_cents,tax_cents,tip_cents,guest_count,paid_at,status,discount_total_cents&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}${tc}`
+  );
+
+  /* Annulées de cette période pour le staff (pour info) */
+  const cancelled = await sb<Order[]>(
+    `orders?select=id,staff_id&status=eq.cancelled&updated_at=gte.${encodeURIComponent(startISO)}&updated_at=lt.${encodeURIComponent(endISO)}&staff_id=eq.${staffId}${tc}`
+  );
+
+  const myOrders = allOrders.filter((o) => o.staff_id === staffId);
+  const myOrderIds = myOrders.map((o) => o.id);
+
+  /* 2. Items vendus par ce staff (pour top items) */
+  const items =
+    myOrderIds.length > 0
+      ? await sb<OrderItem[]>(
+          `order_items?select=order_id,menu_item_id,menu_item_name,quantity,price_cents,status&order_id=in.(${myOrderIds.map((i) => `"${i}"`).join(",")})${tc}`
+        )
+      : [];
+
+  /* 3. Calculs */
+  const orders_count = myOrders.length;
+  const guests_count = myOrders.reduce(
+    (s, o) => s + (o.guest_count || 0),
+    0
+  );
+  const revenue_ttc_cents = myOrders.reduce((s, o) => s + o.total_cents, 0);
+  const tax_cents = myOrders.reduce((s, o) => s + (o.tax_cents || 0), 0);
+  const revenue_ht_cents = revenue_ttc_cents - tax_cents;
+  const tip_cents = myOrders.reduce((s, o) => s + (o.tip_cents || 0), 0);
+  const discount_total_cents = myOrders.reduce(
+    (s, o) => s + (o.discount_total_cents || 0),
+    0
+  );
+  const tip_pct =
+    revenue_ttc_cents > 0 ? (tip_cents / revenue_ttc_cents) * 100 : 0;
+
+  /* 4. Top items */
+  const itemMap = new Map<
+    string,
+    { name: string; quantity: number; revenue: number }
+  >();
+  for (const it of items) {
+    if (it.status === "cancelled") continue;
+    const cur = itemMap.get(it.menu_item_id) ?? {
+      name: it.menu_item_name,
+      quantity: 0,
+      revenue: 0,
+    };
+    cur.quantity += it.quantity;
+    cur.revenue += it.price_cents * it.quantity;
+    itemMap.set(it.menu_item_id, cur);
+  }
+  const top_items = [...itemMap.entries()]
+    .map(([menu_item_id, v]) => ({
+      menu_item_id,
+      menu_item_name: v.name,
+      quantity: v.quantity,
+      revenue_cents: v.revenue,
+    }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  /* 5. Évolution par jour (pour mini-graph) */
+  const dayMap = new Map<string, { orders: number; revenue: number }>();
+  for (const o of myOrders) {
+    if (!o.paid_at) continue;
+    const date = o.paid_at.slice(0, 10);
+    const cur = dayMap.get(date) ?? { orders: 0, revenue: 0 };
+    cur.orders += 1;
+    cur.revenue += o.total_cents;
+    dayMap.set(date, cur);
+  }
+  const by_day = [...dayMap.entries()]
+    .map(([date, v]) => ({
+      date,
+      orders: v.orders,
+      revenue_cents: v.revenue,
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  /* 6. Classement de ce staff vs équipe */
+  const teamRevenueByStaff = new Map<string, number>();
+  for (const o of allOrders) {
+    if (!o.staff_id) continue;
+    teamRevenueByStaff.set(
+      o.staff_id,
+      (teamRevenueByStaff.get(o.staff_id) ?? 0) + o.total_cents
+    );
+  }
+  const sortedTeam = [...teamRevenueByStaff.entries()].sort(
+    (a, b) => b[1] - a[1]
+  );
+  const rank = sortedTeam.findIndex(([sid]) => sid === staffId);
+  const team_size = sortedTeam.length;
+  const team_total = sortedTeam.reduce((s, [, v]) => s + v, 0);
+  const team_avg_revenue_cents =
+    team_size > 0 ? Math.round(team_total / team_size) : 0;
+
+  return {
+    staff_id: staffId,
+    period,
+    period_label: label,
+    start_iso: startISO,
+    end_iso: endISO,
+    orders_count,
+    guests_count,
+    revenue_ttc_cents,
+    revenue_ht_cents,
+    tip_cents,
+    tip_pct,
+    avg_ticket_cents:
+      orders_count > 0 ? Math.round(revenue_ttc_cents / orders_count) : 0,
+    avg_per_guest_cents:
+      guests_count > 0 ? Math.round(revenue_ttc_cents / guests_count) : 0,
+    cancelled_orders: cancelled.length,
+    discount_total_cents,
+    top_items,
+    by_day,
+    rank_in_team: rank >= 0 ? rank + 1 : null,
+    team_size,
+    team_avg_revenue_cents,
+  };
+}
+
+function emptyStaffStats(
+  staffId: string,
+  period: StaffStatsPeriod,
+  label: string,
+  startISO: string,
+  endISO: string
+): StaffStatsResult {
+  return {
+    staff_id: staffId,
+    period,
+    period_label: label,
+    start_iso: startISO,
+    end_iso: endISO,
+    orders_count: 0,
+    guests_count: 0,
+    revenue_ttc_cents: 0,
+    revenue_ht_cents: 0,
+    tip_cents: 0,
+    tip_pct: 0,
+    avg_ticket_cents: 0,
+    avg_per_guest_cents: 0,
+    cancelled_orders: 0,
+    discount_total_cents: 0,
+    top_items: [],
+    by_day: [],
+    rank_in_team: null,
+    team_size: 0,
+    team_avg_revenue_cents: 0,
+  };
+}
+
+/**
+ * Leaderboard mensuel : classement de tous les staffs actifs par CA du mois.
+ * Renvoie les top 10. Utilisé sur /admin/staff pour la section "Top du mois".
+ */
+export async function getStaffLeaderboard(
+  period: StaffStatsPeriod = "month",
+  tenantId?: string
+): Promise<
+  Array<{
+    staff_id: string;
+    staff_name: string;
+    staff_color: string | null;
+    rank: number;
+    revenue_cents: number;
+    orders_count: number;
+    tip_cents: number;
+  }>
+> {
+  if (!USE_SUPABASE) return [];
+  const tid = await resolveTenantId(tenantId);
+  const tc = tenantClause(tid);
+  const { startISO, endISO } = periodBounds(period);
+
+  const orders = await sb<Order[]>(
+    `orders?select=id,staff_id,total_cents,tip_cents&status=eq.paid&paid_at=gte.${encodeURIComponent(startISO)}&paid_at=lt.${encodeURIComponent(endISO)}${tc}`
+  );
+
+  /* Aggregate per staff */
+  const byStaff = new Map<
+    string,
+    { revenue: number; orders: number; tip: number }
+  >();
+  for (const o of orders) {
+    if (!o.staff_id) continue;
+    const cur = byStaff.get(o.staff_id) ?? {
+      revenue: 0,
+      orders: 0,
+      tip: 0,
+    };
+    cur.revenue += o.total_cents;
+    cur.orders += 1;
+    cur.tip += o.tip_cents || 0;
+    byStaff.set(o.staff_id, cur);
+  }
+
+  /* Récupère les noms */
+  const staffIds = [...byStaff.keys()];
+  if (staffIds.length === 0) return [];
+
+  const staff = await sb<StaffMember[]>(
+    `staff_members?select=id,name,color&id=in.(${staffIds.map((i) => `"${i}"`).join(",")})${tc}`
+  );
+  const staffMap = new Map(staff.map((s) => [s.id, s]));
+
+  return [...byStaff.entries()]
+    .map(([staffId, v]) => ({
+      staff_id: staffId,
+      staff_name: staffMap.get(staffId)?.name ?? "—",
+      staff_color: staffMap.get(staffId)?.color ?? null,
+      rank: 0, // filled after sort
+      revenue_cents: v.revenue,
+      orders_count: v.orders,
+      tip_cents: v.tip,
+    }))
+    .sort((a, b) => b.revenue_cents - a.revenue_cents)
+    .slice(0, 10)
+    .map((row, i) => ({ ...row, rank: i + 1 }));
+}
+
+/* ═══════════════════════════════════════════════════════════
    ORDERS (tenant-scoped)
    ═══════════════════════════════════════════════════════════ */
 

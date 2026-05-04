@@ -19,10 +19,23 @@
  * un sprint dédié "gestion personnel enrichie".
  */
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { formatCents } from "@/lib/format";
 import { ROLE_META, type StaffRole } from "@/lib/auth/roles";
 import type { StaffMember } from "@/lib/db/pos-types";
+
+interface LeaderboardEntry {
+  staff_id: string;
+  staff_name: string;
+  staff_color: string | null;
+  rank: number;
+  revenue_cents: number;
+  orders_count: number;
+  tip_cents: number;
+}
 
 const COLOR_PRESETS = [
   "#C0392B", // rouge brique
@@ -36,7 +49,9 @@ const COLOR_PRESETS = [
 ];
 
 export default function StaffAdminPage() {
+  const router = useRouter();
   const [rows, setRows] = useState<StaffMember[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | StaffRole>("all");
@@ -44,13 +59,23 @@ export default function StaffAdminPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/staff?include_inactive=1", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("Impossible de charger le personnel");
-      const data = (await res.json()) as { staff: StaffMember[] };
+      const [staffRes, lbRes] = await Promise.all([
+        fetch("/api/admin/staff?include_inactive=1", {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch("/api/admin/staff/leaderboard?period=month", {
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ]);
+      if (!staffRes.ok) throw new Error("Impossible de charger le personnel");
+      const data = (await staffRes.json()) as { staff: StaffMember[] };
       setRows(data.staff);
+      if (lbRes.ok) {
+        const lb = (await lbRes.json()) as { leaderboard: LeaderboardEntry[] };
+        setLeaderboard(lb.leaderboard);
+      }
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -62,6 +87,22 @@ export default function StaffAdminPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  /* Sprint 7b QW#11 — si on arrive avec ?edit=<staffId> (depuis page détail),
+   * ouvre directement le modal d'édition. On lit window.location pour
+   * éviter le bailout SSR de useSearchParams en Next 16. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (editId && rows.length > 0) {
+      const target = rows.find((s) => s.id === editId);
+      if (target) {
+        setEditing(target);
+        router.replace("/admin/staff");
+      }
+    }
+  }, [rows, router]);
 
   const filtered = useMemo(() => {
     let list = rows;
@@ -133,6 +174,105 @@ export default function StaffAdminPage() {
           tone="muted"
         />
       </motion.section>
+
+      {/* Leaderboard du mois — Sprint 7b QW#11 */}
+      {leaderboard.length > 1 && (
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          className="mb-6 rounded-2xl bg-gradient-to-br from-gold/15 via-gold/8 to-cream border border-gold/30 p-5"
+        >
+          <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+            <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown flex items-center gap-2">
+              🏆 Classement du mois
+            </h2>
+            <p className="text-[11px] text-brown-light/70 italic">
+              Challenge équipe — top serveurs par CA généré
+            </p>
+          </div>
+          <ol className="space-y-2">
+            {leaderboard.slice(0, 5).map((entry) => {
+              const medal =
+                entry.rank === 1
+                  ? "🥇"
+                  : entry.rank === 2
+                    ? "🥈"
+                    : entry.rank === 3
+                      ? "🥉"
+                      : null;
+              return (
+                <li key={entry.staff_id}>
+                  <Link
+                    href={`/admin/staff/${entry.staff_id}`}
+                    className={[
+                      "flex items-center gap-3 p-3 rounded-xl transition group",
+                      entry.rank === 1
+                        ? "bg-white-warm border-2 border-gold shadow-md"
+                        : "bg-white-warm/60 border border-terracotta/20 hover:border-gold/50",
+                    ].join(" ")}
+                  >
+                    {/* Rank / medal */}
+                    <div className="flex-shrink-0 w-10 text-center">
+                      {medal ? (
+                        <span className="text-2xl" aria-hidden>
+                          {medal}
+                        </span>
+                      ) : (
+                        <span className="text-base font-bold text-brown-light tabular-nums">
+                          #{entry.rank}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Avatar */}
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center font-[family-name:var(--font-display)] text-base font-bold text-cream flex-shrink-0"
+                      style={{ background: entry.staff_color || "#B8922F" }}
+                    >
+                      {entry.staff_name.charAt(0).toUpperCase()}
+                    </div>
+
+                    {/* Name + orders */}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-brown truncate">
+                        {entry.staff_name}
+                      </p>
+                      <p className="text-[11px] text-brown-light tabular-nums">
+                        {entry.orders_count} commande
+                        {entry.orders_count > 1 ? "s" : ""}
+                        {entry.tip_cents > 0 && (
+                          <span className="ml-2">
+                            · {formatCents(entry.tip_cents)} pourb.
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Revenue */}
+                    <div className="text-right flex-shrink-0">
+                      <p
+                        className={[
+                          "font-[family-name:var(--font-display)] font-bold tabular-nums",
+                          entry.rank === 1
+                            ? "text-2xl text-gold"
+                            : "text-lg text-brown",
+                        ].join(" ")}
+                      >
+                        {formatCents(entry.revenue_cents)}
+                      </p>
+                    </div>
+
+                    <span className="text-brown-light/40 group-hover:text-gold transition">
+                      →
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ol>
+        </motion.section>
+      )}
 
       {/* Toolbar */}
       <motion.section
@@ -238,19 +378,18 @@ function StaffCard({
   const initial = s.name.charAt(0).toUpperCase();
 
   return (
-    <motion.li layout>
-      <button
-        type="button"
-        onClick={onEdit}
+    <motion.li layout className="relative">
+      {/* Click card → navigation vers détail (stats individuelles) */}
+      <Link
+        href={`/admin/staff/${s.id}`}
         className={[
-          "w-full text-left rounded-2xl bg-white-warm border p-5 transition active:scale-[0.99] hover:shadow-md",
+          "block rounded-2xl bg-white-warm border p-5 transition active:scale-[0.99] hover:shadow-md hover:border-gold pr-12",
           s.active
-            ? "border-terracotta/20 hover:border-gold"
+            ? "border-terracotta/20"
             : "border-terracotta/10 opacity-60",
         ].join(" ")}
       >
         <div className="flex items-start gap-3">
-          {/* Avatar coloré */}
           <div
             className="w-12 h-12 rounded-xl flex items-center justify-center font-[family-name:var(--font-display)] text-xl font-bold flex-shrink-0 text-cream"
             style={{ background: s.color || "#B8922F" }}
@@ -286,6 +425,24 @@ function StaffCard({
         <p className="text-[11px] text-brown-light/70 mt-3 italic leading-snug">
           {meta.description}
         </p>
+        <p className="text-[11px] text-gold font-semibold mt-2">
+          Voir les stats →
+        </p>
+      </Link>
+
+      {/* Bouton edit en overlay top-right (ne déclenche pas la navigation) */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onEdit();
+        }}
+        className="absolute top-3 right-3 w-9 h-9 rounded-full bg-cream hover:bg-gold/20 text-brown-light hover:text-brown border border-terracotta/30 flex items-center justify-center transition active:scale-90 text-sm"
+        title="Modifier"
+        aria-label={`Modifier ${s.name}`}
+      >
+        ✎
       </button>
     </motion.li>
   );
