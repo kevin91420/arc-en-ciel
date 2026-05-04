@@ -12,6 +12,7 @@ import type { DashboardStats } from "@/lib/db/types";
 import { formatCents, formatFrenchDateTime, relativeFr } from "./_lib/format";
 import StaffStatsWidget from "@/components/StaffStatsWidget";
 import PendingClosureBanner from "./_components/PendingClosureBanner";
+import LowStockBanner from "./_components/LowStockBanner";
 
 const REFRESH_MS = 15_000;
 
@@ -100,6 +101,9 @@ export default function AdminHomePage() {
 
       {/* Banner clôture en attente (Sprint 7b QW#10) */}
       <PendingClosureBanner />
+
+      {/* Banner stock bas (Sprint 7b QW#12) */}
+      <LowStockBanner />
 
       {/* Live staff performance — picks up from /api/admin/z-report. */}
       <StaffStatsWidget />

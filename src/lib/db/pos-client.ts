@@ -858,6 +858,13 @@ export async function fireOrder(
   if (!USE_SUPABASE) throw new Error("POS requires Supabase");
   const tid = await resolveTenantId(tenantId);
   const now = new Date().toISOString();
+
+  /* Sprint 7b QW#12 — Récupère les items qui vont être fired pour
+   * décrémenter le stock après. */
+  const itemsToFire = await sb<{ menu_item_id: string }[]>(
+    `order_items?select=menu_item_id&order_id=eq.${orderId}&status=eq.pending${tenantClause(tid)}`
+  );
+
   await sb(
     `order_items?order_id=eq.${orderId}&status=eq.pending${tenantClause(tid)}`,
     {
@@ -869,6 +876,17 @@ export async function fireOrder(
     method: "PATCH",
     body: JSON.stringify({ status: "fired", fired_at: now }),
   });
+
+  /* Décrément stock asynchrone (best-effort, ne bloque pas l'envoi cuisine) */
+  if (itemsToFire.length > 0) {
+    const { decrementStockForOrderItems } = await import("./stock-client");
+    decrementStockForOrderItems(
+      orderId,
+      itemsToFire.map((i) => i.menu_item_id),
+      tid
+    ).catch(() => null);
+  }
+
   const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found after fire");
   return updated;
@@ -893,6 +911,12 @@ export async function fireOrderByCategories(
   const catList = categories
     .map((c) => `"${c.replace(/"/g, "")}"`)
     .join(",");
+
+  /* Sprint 7b QW#12 — Récupère les items qui vont être fired (filtré par catégories) */
+  const itemsToFire = await sb<{ menu_item_id: string }[]>(
+    `order_items?select=menu_item_id&order_id=eq.${orderId}&status=eq.pending&menu_item_category=in.(${catList})${tenantClause(tid)}`
+  );
+
   await sb(
     `order_items?order_id=eq.${orderId}&status=eq.pending&menu_item_category=in.(${catList})${tenantClause(tid)}`,
     {
@@ -904,6 +928,16 @@ export async function fireOrderByCategories(
     method: "PATCH",
     body: JSON.stringify({ status: "fired", fired_at: now }),
   });
+
+  if (itemsToFire.length > 0) {
+    const { decrementStockForOrderItems } = await import("./stock-client");
+    decrementStockForOrderItems(
+      orderId,
+      itemsToFire.map((i) => i.menu_item_id),
+      tid
+    ).catch(() => null);
+  }
+
   const updated = await getOrder(orderId, tid);
   if (!updated) throw new Error("Order not found after fire");
   return updated;
@@ -1077,6 +1111,13 @@ export async function cancelOrder(
     Math.round(payload.refund_amount_cents ?? 0)
   );
 
+  /* Sprint 7b QW#12 — Récupère les items à recrediter au stock avant
+   * de les marquer cancelled. Seulement ceux qui ont été FIRED (donc
+   * décrémentés du stock) — pas les pending qui n'ont jamais touché le stock. */
+  const itemsToRecredit = await sb<{ menu_item_id: string }[]>(
+    `order_items?select=menu_item_id&order_id=eq.${orderId}&status=in.(cooking,ready,served)${tenantClause(tid)}`
+  );
+
   const [row] = await sb<OrderCancellation[]>(`order_cancellations`, {
     method: "POST",
     body: JSON.stringify({
@@ -1117,6 +1158,17 @@ export async function cancelOrder(
         restaurant_id: tid,
       }),
     }).catch(() => null);
+  }
+
+  /* Sprint 7b QW#12 — Recrédit le stock pour les items qui avaient été
+   * fired. Async, best-effort. */
+  if (itemsToRecredit.length > 0) {
+    const { recreditStockForOrderItems } = await import("./stock-client");
+    recreditStockForOrderItems(
+      orderId,
+      itemsToRecredit.map((i) => i.menu_item_id),
+      tid
+    ).catch(() => null);
   }
 
   return row;

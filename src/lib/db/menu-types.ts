@@ -39,8 +39,45 @@ export interface MenuItemRow {
   tags: DietaryTag[];
   position: number;
   active: boolean;
+  /* Sprint 7b QW#12 — stock tracking opt-in par item */
+  track_stock?: boolean;
+  stock_quantity?: number | null;
+  stock_threshold_low?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+/* Sprint 7b QW#12 — stock movements (audit trail) */
+export type StockMovementKind =
+  | "restock"      // ré-approvisionnement manuel
+  | "sale"         // vente (auto, lors du fire)
+  | "loss"         // perte / casse / périmé
+  | "adjustment"   // correction manuelle (inventaire physique)
+  | "return";      // retour suite annulation
+
+export interface StockMovementRow {
+  id: string;
+  restaurant_id: string;
+  menu_item_id: string;
+  kind: StockMovementKind;
+  delta: number;             // signed (positive = entrée, négative = sortie)
+  quantity_after: number;
+  notes: string | null;
+  created_by_staff_id: string | null;
+  order_id: string | null;
+  created_at: string;
+}
+
+/**
+ * Vue enrichie d'un menu item pour la console stock — inclut le nom de
+ * la catégorie pour afficher dans la liste.
+ */
+export interface MenuItemWithStockInfo extends MenuItemRow {
+  category_title?: string;
+  category_icon?: string;
+  /* Last movement for context */
+  last_movement_at?: string | null;
+  last_movement_kind?: StockMovementKind | null;
 }
 
 export interface MenuVariantRow {

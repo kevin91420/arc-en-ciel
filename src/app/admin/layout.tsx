@@ -217,6 +217,27 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/stock",
+    label: "Stock",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <path
+          d="M3 8l4-4h10l4 4v12a1 1 0 01-1 1H4a1 1 0 01-1-1V8z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path d="M3 8h18" stroke="currentColor" strokeWidth="1.8" />
+        <path
+          d="M9 12h6"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/telephone",
     label: "Téléphone IA",
     icon: (
