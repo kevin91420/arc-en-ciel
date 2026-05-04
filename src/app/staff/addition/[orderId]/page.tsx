@@ -20,6 +20,7 @@ import type {
   PaymentMethod,
   RefundMethod,
 } from "@/lib/db/pos-types";
+import PermGate from "@/components/PermGate";
 import { CANCELLATION_REASONS, DISCOUNT_REASONS } from "@/lib/db/pos-types";
 import type {
   CreateDiscountPayload,
@@ -516,25 +517,29 @@ export default function AdditionPage({ params }: PageProps) {
           )}
 
           {order.status !== "cancelled" && order.status !== "paid" && (
-            <button
-              type="button"
-              onClick={() => setDiscountModalOpen(true)}
-              className="h-10 px-3 rounded-lg text-xs font-semibold text-brown bg-gold/15 hover:bg-gold/25 border border-gold/40 transition inline-flex items-center gap-1.5"
-              title="Appliquer une remise commerciale"
-            >
-              🎁 Remise
-            </button>
+            <PermGate perm="order.discount.apply">
+              <button
+                type="button"
+                onClick={() => setDiscountModalOpen(true)}
+                className="h-10 px-3 rounded-lg text-xs font-semibold text-brown bg-gold/15 hover:bg-gold/25 border border-gold/40 transition inline-flex items-center gap-1.5"
+                title="Appliquer une remise commerciale"
+              >
+                🎁 Remise
+              </button>
+            </PermGate>
           )}
 
           {order.status !== "cancelled" && (
-            <button
-              type="button"
-              onClick={() => setCancelModalOpen(true)}
-              className="h-10 px-3 rounded-lg text-xs font-semibold text-red hover:bg-red/10 transition inline-flex items-center gap-1.5"
-              title="Annuler la commande / rembourser"
-            >
-              ✋ Annuler / Rembourser
-            </button>
+            <PermGate perm="order.cancel">
+              <button
+                type="button"
+                onClick={() => setCancelModalOpen(true)}
+                className="h-10 px-3 rounded-lg text-xs font-semibold text-red hover:bg-red/10 transition inline-flex items-center gap-1.5"
+                title="Annuler la commande / rembourser"
+              >
+                ✋ Annuler / Rembourser
+              </button>
+            </PermGate>
           )}
         </div>
       </div>
@@ -583,14 +588,16 @@ export default function AdditionPage({ params }: PageProps) {
                       −{formatCents(d.amount_cents)}
                     </span>
                     {order.status !== "paid" && order.status !== "cancelled" && (
-                      <button
-                        type="button"
-                        onClick={() => removeDiscount(d.id)}
-                        className="text-[11px] text-brown-light hover:text-red transition px-1"
-                        title="Retirer cette remise"
-                      >
-                        ✕
-                      </button>
+                      <PermGate perm="order.discount.remove">
+                        <button
+                          type="button"
+                          onClick={() => removeDiscount(d.id)}
+                          className="text-[11px] text-brown-light hover:text-red transition px-1"
+                          title="Retirer cette remise (manager only)"
+                        >
+                          ✕
+                        </button>
+                      </PermGate>
                     )}
                   </li>
                 );

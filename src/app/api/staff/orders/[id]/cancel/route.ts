@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cancelOrder } from "@/lib/db/pos-client";
+import { withPermission } from "@/lib/auth/guards";
 import type {
   CancellationReason,
   RefundMethod,
@@ -44,6 +45,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  /* Sprint 7b QW#9 — Annulation = manager-only. Le serveur peut juste
+   * supprimer un item pending, pas annuler une commande entière. */
+  const guard = await withPermission("order.cancel");
+  if (!guard.ok) return guard.response;
+
   const { id } = await params;
   if (!id) {
     return NextResponse.json({ error: "id requis" }, { status: 400 });
@@ -86,6 +92,8 @@ export async function POST(
           : undefined,
       refund_method: refundMethod,
       refund_amount_cents: Math.round(refundAmount),
+      /* Audit : on enregistre qui a annulé pour traçabilité NF525 */
+      staff_id: guard.staff.id,
     });
     return NextResponse.json(cancellation);
   } catch (err) {

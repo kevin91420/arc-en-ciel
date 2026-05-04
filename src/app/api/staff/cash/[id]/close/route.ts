@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { closeCashSession } from "@/lib/db/pos-client";
+import { withPermission } from "@/lib/auth/guards";
 import type { CashBreakdown } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  /* Sprint 7b QW#9 — Fermer la caisse implique réconciliation comptable.
+   * Manager + Server peuvent (les serveurs gèrent leur fond). Chef non. */
+  const guard = await withPermission("cash.close");
+  if (!guard.ok) return guard.response;
+
   const { id } = await params;
   if (!id) {
     return NextResponse.json({ error: "id requis" }, { status: 400 });

@@ -115,11 +115,14 @@ export async function findStaffByPin(
   return rows[0] || null;
 }
 
-export async function listStaff(tenantId?: string): Promise<StaffMember[]> {
+export async function listStaff(
+  options: { includeInactive?: boolean; tenantId?: string } = {}
+): Promise<StaffMember[]> {
   if (!USE_SUPABASE) return [];
-  const tid = await resolveTenantId(tenantId);
+  const tid = await resolveTenantId(options.tenantId);
+  const activeClause = options.includeInactive ? "" : "&active=eq.true";
   return sb<StaffMember[]>(
-    `staff_members?select=*&active=eq.true${tenantClause(tid)}&order=name.asc`
+    `staff_members?select=*${activeClause}${tenantClause(tid)}&order=name.asc`
   );
 }
 
@@ -133,6 +136,113 @@ export async function getStaffById(
     `staff_members?select=*&id=eq.${id}${tenantClause(tid)}&limit=1`
   );
   return rows[0] || null;
+}
+
+/* Sprint 7b QW#9 — CRUD admin pour gérer les staff. */
+
+export interface CreateStaffPayload {
+  name: string;
+  pin_code: string;     // 4 digits
+  role: "manager" | "server" | "chef";
+  color?: string;       // hex
+}
+
+export interface UpdateStaffPayload {
+  name?: string;
+  pin_code?: string;
+  role?: "manager" | "server" | "chef";
+  color?: string;
+  active?: boolean;
+}
+
+/**
+ * Crée un nouveau staff. Vérifie l'unicité du PIN dans le tenant.
+ */
+export async function createStaff(
+  payload: CreateStaffPayload,
+  tenantId?: string
+): Promise<StaffMember> {
+  if (!USE_SUPABASE) throw new Error("Supabase requis");
+  const tid = await resolveTenantId(tenantId);
+
+  /* Validation */
+  if (!payload.name?.trim()) throw new Error("Le nom est obligatoire.");
+  if (!/^\d{4}$/.test(payload.pin_code)) {
+    throw new Error("Le PIN doit contenir 4 chiffres.");
+  }
+
+  /* Vérifie unicité du PIN dans le tenant */
+  const existing = await sb<StaffMember[]>(
+    `staff_members?select=id&pin_code=eq.${encodeURIComponent(payload.pin_code)}${tenantClause(tid)}&active=eq.true&limit=1`
+  );
+  if (existing.length > 0) {
+    throw new Error(
+      `Ce code PIN est déjà utilisé. Choisis-en un autre (${payload.pin_code} pris).`
+    );
+  }
+
+  const [created] = await sb<StaffMember[]>("staff_members", {
+    method: "POST",
+    body: JSON.stringify({
+      name: payload.name.trim(),
+      pin_code: payload.pin_code,
+      role: payload.role,
+      color: payload.color || "#B8922F",
+      active: true,
+      restaurant_id: tid,
+    }),
+  });
+  return created;
+}
+
+/**
+ * Met à jour un staff. Vérifie l'unicité du PIN si changé.
+ */
+export async function updateStaff(
+  id: string,
+  patch: UpdateStaffPayload,
+  tenantId?: string
+): Promise<StaffMember | null> {
+  if (!USE_SUPABASE) return null;
+  const tid = await resolveTenantId(tenantId);
+
+  /* Si on change le PIN, vérifier unicité */
+  if (patch.pin_code) {
+    if (!/^\d{4}$/.test(patch.pin_code)) {
+      throw new Error("Le PIN doit contenir 4 chiffres.");
+    }
+    const existing = await sb<StaffMember[]>(
+      `staff_members?select=id&pin_code=eq.${encodeURIComponent(patch.pin_code)}&id=neq.${id}${tenantClause(tid)}&active=eq.true&limit=1`
+    );
+    if (existing.length > 0) {
+      throw new Error(`Ce code PIN est déjà utilisé.`);
+    }
+  }
+
+  const [updated] = await sb<StaffMember[]>(
+    `staff_members?id=eq.${id}${tenantClause(tid)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }
+  );
+  return updated ?? null;
+}
+
+/**
+ * Désactive un staff (soft delete — on ne supprime jamais l'historique
+ * des commandes/audits qui le référencent).
+ */
+export async function deactivateStaff(
+  id: string,
+  tenantId?: string
+): Promise<void> {
+  if (!USE_SUPABASE) return;
+  const tid = await resolveTenantId(tenantId);
+  await sb(`staff_members?id=eq.${id}${tenantClause(tid)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ active: false }),
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════

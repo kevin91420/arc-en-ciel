@@ -192,6 +192,28 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/staff",
+    label: "Personnel",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <circle cx="9" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.8" />
+        <path
+          d="M2 20c1-3.5 4-5 7-5s6 1.5 7 5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M16 11l1.5 1.5L21 9"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/parametres",
     label: "Paramètres",
     icon: (

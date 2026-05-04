@@ -15,6 +15,7 @@ import {
   getOrder,
   listDiscountsForOrder,
 } from "@/lib/db/pos-client";
+import { withPermission } from "@/lib/auth/guards";
 import type { DiscountKind, DiscountReason } from "@/lib/db/pos-types";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,12 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  /* Sprint 7b QW#9 — appliquer une remise nécessite la perm 'order.discount.apply'.
+   * Manager + Server l'ont. Chef ne l'a pas. Permet d'enregistrer staff_id
+   * pour audit (qui a appliqué la remise). */
+  const guard = await withPermission("order.discount.apply");
+  if (!guard.ok) return guard.response;
+
   const { id } = await params;
   if (!id) {
     return NextResponse.json({ error: "id requis" }, { status: 400 });
@@ -132,10 +139,9 @@ export async function POST(
         typeof body.notes === "string"
           ? body.notes.trim().slice(0, 200) || undefined
           : undefined,
-      applied_by_staff_id:
-        typeof body.applied_by_staff_id === "string"
-          ? body.applied_by_staff_id
-          : undefined,
+      /* Force le staff connecté comme auteur de la remise — empêche
+       * un client mal-intentionné de mettre un autre staff_id dans le body. */
+      applied_by_staff_id: guard.staff.id,
     });
 
     /* Re-fetch order pour renvoyer les nouveaux totaux */

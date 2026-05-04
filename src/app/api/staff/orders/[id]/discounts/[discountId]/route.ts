@@ -12,6 +12,7 @@ import {
   getOrder,
   removeOrderDiscount,
 } from "@/lib/db/pos-client";
+import { withPermission } from "@/lib/auth/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,11 @@ interface Ctx {
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
+  /* Sprint 7b QW#9 — Retirer une remise est manager-only (audit).
+   * Le serveur peut appliquer mais pas annuler — le manager garde le contrôle. */
+  const guard = await withPermission("order.discount.remove");
+  if (!guard.ok) return guard.response;
+
   const { id, discountId } = await ctx.params;
   if (!id || !discountId) {
     return NextResponse.json(
