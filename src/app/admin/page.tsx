@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import type { DashboardStats } from "@/lib/db/types";
 import { formatCents, formatFrenchDateTime, relativeFr } from "./_lib/format";
 import StaffStatsWidget from "@/components/StaffStatsWidget";
+import PendingClosureBanner from "./_components/PendingClosureBanner";
 
 const REFRESH_MS = 15_000;
 
@@ -96,6 +97,9 @@ export default function AdminHomePage() {
           Aujourd&apos;hui au restaurant
         </h1>
       </div>
+
+      {/* Banner clôture en attente (Sprint 7b QW#10) */}
+      <PendingClosureBanner />
 
       {/* Live staff performance — picks up from /api/admin/z-report. */}
       <StaffStatsWidget />

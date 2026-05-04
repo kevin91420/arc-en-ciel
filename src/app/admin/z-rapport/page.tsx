@@ -9,8 +9,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { formatCents } from "@/lib/format";
+import PermGate from "@/components/PermGate";
 import {
   useRestaurantBranding,
   formatLegalLines,
@@ -19,6 +20,7 @@ import {
   CASH_DENOMINATIONS,
   type CashBreakdown,
 } from "@/lib/db/pos-types";
+import type { DailyStatusInfo } from "@/lib/db/closures-types";
 
 interface ZReport {
   date: string;
@@ -136,19 +138,45 @@ export default function ZReportPage() {
   const [report, setReport] = useState<ZReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /* Sprint 7b QW#10 — état de clôture pour la date courante */
+  const [closureStatus, setClosureStatus] = useState<DailyStatusInfo | null>(
+    null
+  );
+  const [closureModalOpen, setClosureModalOpen] = useState(false);
+  const [closureBusy, setClosureBusy] = useState(false);
   const branding = useRestaurantBranding();
+
+  /* Lit le param ?date= depuis l'URL au mount */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const urlDate = params.get("date");
+    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+      setDate(urlDate);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/z-report?date=${date}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as ZReport;
+      const [reportRes, closureRes] = await Promise.all([
+        fetch(`/api/admin/z-report?date=${date}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`/api/admin/closures/daily?date=${date}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ]);
+      if (!reportRes.ok) throw new Error(`HTTP ${reportRes.status}`);
+      const data = (await reportRes.json()) as ZReport;
       setReport(data);
       setError(null);
+      if (closureRes.ok) {
+        const c = (await closureRes.json()) as DailyStatusInfo;
+        setClosureStatus(c);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -159,6 +187,28 @@ export default function ZReportPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  async function confirmClosure(notes: string) {
+    setClosureBusy(true);
+    try {
+      const res = await fetch("/api/admin/closures/daily", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service_date: date, notes }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(d.error || `HTTP ${res.status}`);
+      }
+      setClosureModalOpen(false);
+      await refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setClosureBusy(false);
+    }
+  }
 
   const isToday = date === todayISO();
   const peakHour = report?.by_hour.reduce(
@@ -226,6 +276,14 @@ export default function ZReportPage() {
           >
             🖨 Imprimer le Z
           </button>
+
+          {/* Sprint 7b QW#10 — Statut de clôture + bouton manager */}
+          {closureStatus && (
+            <ClosureBadge
+              status={closureStatus}
+              onClickClose={() => setClosureModalOpen(true)}
+            />
+          )}
         </div>
       </div>
 
@@ -661,7 +719,190 @@ export default function ZReportPage() {
           </footer>
         </article>
       )}
+
+      {/* Sprint 7b QW#10 — Modal de confirmation clôture */}
+      <AnimatePresence>
+        {closureModalOpen && closureStatus && (
+          <ClosureConfirmModal
+            date={date}
+            ordersCount={closureStatus.orders_count}
+            revenueCents={closureStatus.revenue_ttc_cents}
+            busy={closureBusy}
+            onCancel={() => setClosureModalOpen(false)}
+            onConfirm={confirmClosure}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * Sprint 7b QW#10 — Badge "Clôturé / À clôturer / Sans activité" + bouton
+ * Manager only via PermGate.
+ */
+function ClosureBadge({
+  status,
+  onClickClose,
+}: {
+  status: DailyStatusInfo;
+  onClickClose: () => void;
+}) {
+  if (status.status === "closed") {
+    return (
+      <span className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-green-100 border border-green-300 text-green-800 text-sm font-bold">
+        <span aria-hidden>✓</span>
+        Clôturé{" "}
+        <span className="text-[10px] font-normal text-green-700/80">
+          ·{" "}
+          {status.closure?.closed_at
+            ? new Date(status.closure.closed_at).toLocaleDateString("fr-FR")
+            : ""}
+        </span>
+      </span>
+    );
+  }
+  if (status.status === "open") {
+    return (
+      <PermGate
+        perm="stats.z_report"
+        fallback={
+          <span className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-sm font-bold">
+            <span aria-hidden>⏳</span>À clôturer (manager)
+          </span>
+        }
+      >
+        <button
+          type="button"
+          onClick={onClickClose}
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition active:scale-95"
+          title="Clôturer cette journée"
+        >
+          <span aria-hidden>🔒</span>
+          Clôturer cette journée
+        </button>
+      </PermGate>
+    );
+  }
+  /* empty */
+  return (
+    <span className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-cream border border-terracotta/30 text-brown-light/70 text-sm">
+      <span aria-hidden>—</span>
+      Pas d&apos;activité
+    </span>
+  );
+}
+
+/**
+ * Sprint 7b QW#10 — Modal de confirmation de clôture journalière
+ * (depuis la page Z report).
+ */
+function ClosureConfirmModal({
+  date,
+  ordersCount,
+  revenueCents,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  date: string;
+  ordersCount: number;
+  revenueCents: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (notes: string) => void;
+}) {
+  const [notes, setNotes] = useState("");
+  const dateLabel = new Date(`${date}T12:00:00`).toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onCancel}
+        className="fixed inset-0 z-50 bg-brown/60 backdrop-blur-sm no-print"
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.96 }}
+        className="fixed inset-x-4 top-1/2 -translate-y-1/2 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:max-w-lg sm:w-full z-50 no-print"
+        role="dialog"
+      >
+        <div className="bg-white-warm rounded-2xl shadow-2xl border-2 border-gold/30 p-6">
+          <h2 className="font-[family-name:var(--font-display)] text-xl font-bold text-brown text-center">
+            Clôturer la journée
+          </h2>
+          <p className="text-sm text-brown-light text-center mt-1 capitalize">
+            {dateLabel}
+          </p>
+          <div className="mt-5 rounded-xl bg-cream border border-terracotta/20 p-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+                  Commandes payées
+                </div>
+                <div className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown tabular-nums">
+                  {ordersCount}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-brown-light/70 font-bold">
+                  CA TTC
+                </div>
+                <div className="font-[family-name:var(--font-display)] text-2xl font-bold text-brown tabular-nums">
+                  {formatCents(revenueCents)}
+                </div>
+              </div>
+            </div>
+          </div>
+          <label className="block mt-4">
+            <span className="text-[10px] uppercase tracking-wider text-brown-light/80 font-bold">
+              Note de clôture (optionnel)
+            </span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Incident, événement particulier, observation…"
+              maxLength={500}
+              rows={2}
+              className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-cream border border-terracotta/30 text-sm text-brown focus:outline-none focus:border-gold resize-none"
+            />
+          </label>
+          <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+            <p className="font-bold">⚠ Action définitive</p>
+            <p className="mt-1">
+              Une fois clôturée, la journée ne peut plus être modifiée. Le
+              snapshot Z est figé pour audit comptable.
+            </p>
+          </div>
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="h-11 px-4 rounded-lg text-sm text-brown-light hover:text-brown transition border border-terracotta/30"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(notes.trim())}
+              disabled={busy}
+              className="h-11 px-5 rounded-lg bg-brown text-cream text-sm font-bold hover:bg-brown-light transition active:scale-95 disabled:opacity-50"
+            >
+              {busy ? "Clôture…" : "🔒 Clôturer définitivement"}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </>
   );
 }
 

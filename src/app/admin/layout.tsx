@@ -157,6 +157,30 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/cloture",
+    label: "Clôture",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" aria-hidden>
+        <rect
+          x="5"
+          y="11"
+          width="14"
+          height="9"
+          rx="2"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        />
+        <path
+          d="M8 11V7a4 4 0 118 0v4"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <circle cx="12" cy="15.5" r="1.2" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
     href: "/admin/comptabilite",
     label: "Comptabilité",
     icon: (
