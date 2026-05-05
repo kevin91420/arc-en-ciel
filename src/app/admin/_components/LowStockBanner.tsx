@@ -1,23 +1,39 @@
 "use client";
 
 /**
- * LowStockBanner — alerte affichée si des items sont en rupture ou seuil bas.
- * Sprint 7b QW#12. Posé sur le dashboard admin.
+ * LowStockBanner — alerte affichée si des items / ingrédients sont en
+ * rupture ou seuil bas. Sprint 7b QW#12 + Niveau 2.
+ *
+ * Priorité affichage :
+ *   1. Ruptures ingrédients (risque immédiat)
+ *   2. Alertes seuil bas ingrédients
+ *   3. Ruptures items (Niveau 1)
+ *
+ * Posé sur le dashboard admin.
  */
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-interface StockStats {
+interface ItemStockStats {
   tracked_items: number;
   low_stock_count: number;
   out_of_stock_count: number;
   total_value_cents: number;
 }
 
+interface IngredientStockStats {
+  total_ingredients: number;
+  active_ingredients: number;
+  low_stock_count: number;
+  out_of_stock_count: number;
+  total_value_cents: number;
+}
+
 export default function LowStockBanner() {
-  const [stats, setStats] = useState<StockStats | null>(null);
+  const [itemStats, setItemStats] = useState<ItemStockStats | null>(null);
+  const [ingStats, setIngStats] = useState<IngredientStockStats | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -33,15 +49,28 @@ export default function LowStockBanner() {
       /* ignore */
     }
 
-    fetch("/api/admin/stock?filter=alerts", {
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { stats: StockStats } | null) => {
-        if (data?.stats) setStats(data.stats);
+    const ac = new AbortController();
+    Promise.all([
+      fetch("/api/admin/stock?filter=alerts", {
+        credentials: "include",
+        cache: "no-store",
+        signal: ac.signal,
       })
-      .catch(() => {});
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+      fetch("/api/admin/ingredients?filter=alerts", {
+        credentials: "include",
+        cache: "no-store",
+        signal: ac.signal,
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]).then(([s, ing]) => {
+      if (s?.stats) setItemStats(s.stats);
+      if (ing?.stats) setIngStats(ing.stats);
+    });
+
+    return () => ac.abort();
   }, []);
 
   function dismiss() {
@@ -54,9 +83,27 @@ export default function LowStockBanner() {
     }
   }
 
-  if (dismissed || !stats) return null;
-  const total = stats.low_stock_count + stats.out_of_stock_count;
-  if (total === 0) return null;
+  if (dismissed) return null;
+
+  const ingTotal =
+    (ingStats?.low_stock_count ?? 0) + (ingStats?.out_of_stock_count ?? 0);
+  const itemTotal =
+    (itemStats?.low_stock_count ?? 0) + (itemStats?.out_of_stock_count ?? 0);
+  if (ingTotal === 0 && itemTotal === 0) return null;
+
+  /* Priorité ingrédients (vrai stock) */
+  const showIngredients = ingTotal > 0;
+  const linkHref = showIngredients
+    ? "/admin/stock/ingredients?filter=alerts"
+    : "/admin/stock/items?filter=alerts";
+
+  const title = showIngredients
+    ? (ingStats?.out_of_stock_count ?? 0) > 0
+      ? "Ingrédients en rupture"
+      : "Stock ingrédients bas"
+    : (itemStats?.out_of_stock_count ?? 0) > 0
+      ? "Plats en rupture"
+      : "Stock bas";
 
   return (
     <AnimatePresence>
@@ -68,34 +115,56 @@ export default function LowStockBanner() {
         role="alert"
       >
         <div className="text-2xl flex-shrink-0" aria-hidden>
-          📦
+          {showIngredients ? "🥬" : "📦"}
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-[family-name:var(--font-display)] text-base font-bold text-red-dark">
-            {stats.out_of_stock_count > 0
-              ? "Plats en rupture"
-              : "Stock bas"}
+            {title}
           </p>
           <p className="text-sm text-brown mt-0.5">
-            {stats.out_of_stock_count > 0 && (
-              <strong className="text-red-dark">
-                {stats.out_of_stock_count} en rupture
-              </strong>
-            )}
-            {stats.out_of_stock_count > 0 && stats.low_stock_count > 0 && " · "}
-            {stats.low_stock_count > 0 && (
-              <span className="text-amber-700">
-                <strong>{stats.low_stock_count}</strong> en alerte seuil bas
-              </span>
+            {showIngredients ? (
+              <>
+                {(ingStats?.out_of_stock_count ?? 0) > 0 && (
+                  <strong className="text-red-dark">
+                    {ingStats?.out_of_stock_count} en rupture
+                  </strong>
+                )}
+                {(ingStats?.out_of_stock_count ?? 0) > 0 &&
+                  (ingStats?.low_stock_count ?? 0) > 0 &&
+                  " · "}
+                {(ingStats?.low_stock_count ?? 0) > 0 && (
+                  <span className="text-amber-700">
+                    <strong>{ingStats?.low_stock_count}</strong> en alerte seuil bas
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                {(itemStats?.out_of_stock_count ?? 0) > 0 && (
+                  <strong className="text-red-dark">
+                    {itemStats?.out_of_stock_count} en rupture
+                  </strong>
+                )}
+                {(itemStats?.out_of_stock_count ?? 0) > 0 &&
+                  (itemStats?.low_stock_count ?? 0) > 0 &&
+                  " · "}
+                {(itemStats?.low_stock_count ?? 0) > 0 && (
+                  <span className="text-amber-700">
+                    <strong>{itemStats?.low_stock_count}</strong> en alerte seuil bas
+                  </span>
+                )}
+              </>
             )}
           </p>
           <p className="text-[11px] text-brown-light/80 mt-1.5">
-            Pense à ré-approvisionner pour ne pas perdre de ventes ce service.
+            {showIngredients
+              ? "Programme ta livraison fournisseur pour pas tomber en rade."
+              : "Pense à ré-approvisionner pour ne pas perdre de ventes ce service."}
           </p>
         </div>
         <div className="flex flex-col gap-1.5 flex-shrink-0">
           <Link
-            href="/admin/stock?filter=alerts"
+            href={linkHref}
             className="inline-flex items-center justify-center h-9 px-3 rounded-lg bg-red hover:bg-red-dark text-cream text-xs font-bold transition active:scale-95"
           >
             Voir le stock

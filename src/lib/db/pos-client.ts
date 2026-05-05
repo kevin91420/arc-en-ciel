@@ -877,14 +877,20 @@ export async function fireOrder(
     body: JSON.stringify({ status: "fired", fired_at: now }),
   });
 
-  /* Décrément stock asynchrone (best-effort, ne bloque pas l'envoi cuisine) */
+  /* Décrément stock asynchrone (best-effort, ne bloque pas l'envoi cuisine).
+   * Niveau 1 : décrémente menu_items.stock_quantity (item-level).
+   * Niveau 2 : décrémente les ingrédients selon les recettes (BOM).
+   * Les deux coexistent : Niveau 2 ne s'applique que si une recette existe. */
   if (itemsToFire.length > 0) {
-    const { decrementStockForOrderItems } = await import("./stock-client");
-    decrementStockForOrderItems(
-      orderId,
-      itemsToFire.map((i) => i.menu_item_id),
-      tid
-    ).catch(() => null);
+    const itemIds = itemsToFire.map((i) => i.menu_item_id);
+    const [stockMod, recipesMod] = await Promise.all([
+      import("./stock-client"),
+      import("./recipes-client"),
+    ]);
+    stockMod.decrementStockForOrderItems(orderId, itemIds, tid).catch(() => null);
+    recipesMod
+      .decrementIngredientsForOrderItems(orderId, itemIds, tid)
+      .catch(() => null);
   }
 
   const updated = await getOrder(orderId, tid);
@@ -930,12 +936,15 @@ export async function fireOrderByCategories(
   });
 
   if (itemsToFire.length > 0) {
-    const { decrementStockForOrderItems } = await import("./stock-client");
-    decrementStockForOrderItems(
-      orderId,
-      itemsToFire.map((i) => i.menu_item_id),
-      tid
-    ).catch(() => null);
+    const itemIds = itemsToFire.map((i) => i.menu_item_id);
+    const [stockMod, recipesMod] = await Promise.all([
+      import("./stock-client"),
+      import("./recipes-client"),
+    ]);
+    stockMod.decrementStockForOrderItems(orderId, itemIds, tid).catch(() => null);
+    recipesMod
+      .decrementIngredientsForOrderItems(orderId, itemIds, tid)
+      .catch(() => null);
   }
 
   const updated = await getOrder(orderId, tid);
@@ -1161,14 +1170,19 @@ export async function cancelOrder(
   }
 
   /* Sprint 7b QW#12 — Recrédit le stock pour les items qui avaient été
-   * fired. Async, best-effort. */
+   * fired. Async, best-effort.
+   * Niveau 1 : remet stock_quantity à jour côté menu_items.
+   * Niveau 2 : recrédite les ingrédients selon les recettes. */
   if (itemsToRecredit.length > 0) {
-    const { recreditStockForOrderItems } = await import("./stock-client");
-    recreditStockForOrderItems(
-      orderId,
-      itemsToRecredit.map((i) => i.menu_item_id),
-      tid
-    ).catch(() => null);
+    const itemIds = itemsToRecredit.map((i) => i.menu_item_id);
+    const [stockMod, recipesMod] = await Promise.all([
+      import("./stock-client"),
+      import("./recipes-client"),
+    ]);
+    stockMod.recreditStockForOrderItems(orderId, itemIds, tid).catch(() => null);
+    recipesMod
+      .recreditIngredientsForOrderItems(orderId, itemIds, tid)
+      .catch(() => null);
   }
 
   return row;
